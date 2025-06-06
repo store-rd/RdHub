@@ -363,9 +363,16 @@
         const db = getFirestore(app);
         const googleProvider = new GoogleAuthProvider();
 
-        // --- GLOBAL DOM ELEMENTS (FIX) ---
+        // --- GLOBAL DOM ELEMENTS & VARS ---
         const modalBackdrop = document.getElementById('modal-backdrop');
         const allModals = document.querySelectorAll('.modal');
+        let users = [];
+        let teams = [];
+        let tournaments = [];
+        let notifications = [];
+        let currentUserData = null;
+        let countdownIntervals = [];
+        let notificationsListener = null;
 
         // --- ANIMATED BACKGROUND ---
         const canvas = document.getElementById('background-canvas');
@@ -375,25 +382,19 @@
         const draw = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = 'rgba(8, 145, 178, 0.6)'; particles.forEach(p => { p.x += p.vx; p.y += p.vy; if (p.x < 0 || p.x > canvas.width) p.vx *= -1; if (p.y < 0 || p.y > canvas.height) p.vy *= -1; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); }); requestAnimationFrame(draw); };
         window.addEventListener('resize', setupCanvas);
         
-        // --- LOCAL DATA CACHE ---
-        let users = [];
-        let teams = [];
-        let tournaments = [];
-        let notifications = [];
-        let currentUserData = null;
+        // --- GLOBAL SCOPE HELPER FUNCTIONS ---
         const getUserById = (id) => users.find(u => u.id === id);
         const getTeamById = (id) => teams.find(t => t.id === id);
         const getTournamentById = (id) => tournaments.find(t => t.id === id);
         const statusMap = { 'منتهية': 'bg-red-500/30 text-red-400', 'جارية': 'bg-green-500/30 text-green-400', 'جاهزة للبدء': 'bg-amber-500/30 text-amber-400', 'قادمة': 'bg-blue-500/30 text-blue-400' };
         
-        // --- GLOBAL SCOPE FUNCTIONS ---
+        // --- GLOBAL SCOPE CORE FUNCTIONS ---
         async function getUserPrizes(uid) {
             const q = query(collection(db, "prizes"), where("recipientUid", "==", uid));
             const querySnapshot = await getDocs(q);
             return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         }
 
-        let countdownIntervals = [];
         function initCountdowns() {
             countdownIntervals.forEach(clearInterval); countdownIntervals = [];
             tournaments.forEach(t => {
@@ -1304,6 +1305,11 @@
         document.querySelectorAll('.admin-tab-btn').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.admin-tab-btn').forEach(b=>b.classList.remove('active','border-[var(--color-primary)]','text-[var(--color-primary)]'));btn.classList.add('active','border-[var(--color-primary)]','text-[var(--color-primary)]');document.querySelectorAll('.admin-tab-content').forEach(c=>c.classList.remove('active'));document.getElementById(btn.dataset.target).classList.add('active');});});
 
         // --- MODAL OPENERS & NOTIFICATIONS ---
+        function closeAllModals() {
+            modalBackdrop.classList.add('hidden');
+            allModals.forEach(m => m.classList.add('hidden'));
+        }
+
         function renderNotifications() {
             const countEl = document.getElementById('notification-count');
             const dropdownEl = document.getElementById('notification-dropdown');
