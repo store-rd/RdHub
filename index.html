@@ -388,6 +388,10 @@
         const getTournamentById = (id) => tournaments.find(t => t.id === id);
         const statusMap = { 'منتهية': 'bg-red-500/30 text-red-400', 'جارية': 'bg-green-500/30 text-green-400', 'جاهزة للبدء': 'bg-amber-500/30 text-amber-400', 'قادمة': 'bg-blue-500/30 text-blue-400' };
         
+        // --- MODAL & NOTIFICATION FUNCTIONS ---
+        const showMessageModal = (title, message, isSuccess = true) => { closeAllModals(); const m=document.getElementById('message-modal'); m.querySelector('#message-modal-title').textContent = title; m.querySelector('#message-modal-message').textContent = message; m.querySelector('#message-modal-icon').innerHTML = isSuccess ? `<i class="ph-duotone ph-check-circle text-6xl text-green-400"></i>` : `<i class="ph-duotone ph-x-circle text-6xl text-red-400"></i>`; modalBackdrop.classList.remove('hidden'); m.classList.remove('hidden'); }
+        const closeAllModals = () => { modalBackdrop.classList.add('hidden'); allModals.forEach(m => m.classList.add('hidden')); }
+        
         // --- GLOBAL SCOPE CORE FUNCTIONS ---
         async function getUserPrizes(uid) {
             const q = query(collection(db, "prizes"), where("recipientUid", "==", uid));
@@ -869,7 +873,6 @@
         };
         
         // --- AUTH & NOTIFICATION LOGIC ---
-        let notificationsListener = null;
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 const userRef = doc(db, "users", user.uid);
@@ -1305,11 +1308,6 @@
         document.querySelectorAll('.admin-tab-btn').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.admin-tab-btn').forEach(b=>b.classList.remove('active','border-[var(--color-primary)]','text-[var(--color-primary)]'));btn.classList.add('active','border-[var(--color-primary)]','text-[var(--color-primary)]');document.querySelectorAll('.admin-tab-content').forEach(c=>c.classList.remove('active'));document.getElementById(btn.dataset.target).classList.add('active');});});
 
         // --- MODAL OPENERS & NOTIFICATIONS ---
-        function closeAllModals() {
-            modalBackdrop.classList.add('hidden');
-            allModals.forEach(m => m.classList.add('hidden'));
-        }
-
         function renderNotifications() {
             const countEl = document.getElementById('notification-count');
             const dropdownEl = document.getElementById('notification-dropdown');
