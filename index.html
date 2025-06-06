@@ -867,11 +867,6 @@
             }).join("");
         };
         
-        // --- MODAL & NAVIGATION LOGIC ---
-        const showMessageModal = (title, message, isSuccess = true) => { closeAllModals(); const m=document.getElementById('message-modal'); m.querySelector('#message-modal-title').textContent = title; m.querySelector('#message-modal-message').textContent = message; m.querySelector('#message-modal-icon').innerHTML = isSuccess ? `<i class="ph-duotone ph-check-circle text-6xl text-green-400"></i>` : `<i class="ph-duotone ph-x-circle text-6xl text-red-400"></i>`; modalBackdrop.classList.remove('hidden'); m.classList.remove('hidden'); }
-        const closeAllModals = () => { modalBackdrop.classList.add('hidden'); allModals.forEach(m => m.classList.add('hidden')); }
-        modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop || e.target.classList.contains('modal-close')) { closeAllModals(); } });
-        
         // --- AUTH & NOTIFICATION LOGIC ---
         let notificationsListener = null;
         onAuthStateChanged(auth, async (user) => {
@@ -990,9 +985,9 @@
             if (approve) {
                 batch.update(teamRef, { playerUids: arrayUnion(requesterId) });
                 batch.update(userRef, { teamId: teamId });
-                await sendNotification(requesterId, `تم قبول طلب انضمامك لفريق ${team.name}.`);
+                sendNotification(requesterId, `تم قبول طلب انضمامك لفريق ${team.name}.`);
             } else {
-                await sendNotification(requesterId, `تم رفض طلب انضمامك لفريق ${team.name}.`);
+                sendNotification(requesterId, `تم رفض طلب انضمامك لفريق ${team.name}.`);
             }
             
             await batch.commit();
@@ -1025,7 +1020,7 @@
                 registration.status = 'approved';
                 await updateDoc(doc(db, 'tournaments', tId), { participants: arrayUnion(registration) });
                 for(const uid of team.playerUids) {
-                    await sendNotification(uid, `تم قبول تسجيل فريقكم "${team.name}" في بطولة ${t.name}.`);
+                    sendNotification(uid, `تم قبول تسجيل فريقكم "${team.name}" في بطولة ${t.name}.`);
                 }
             }
             
