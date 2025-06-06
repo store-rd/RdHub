@@ -163,6 +163,36 @@
             content: ''; position: absolute; top: 25%; right: -2.5rem; width: 2px; height: 50%; background: #4b5563;
         }
         .bracket-round:last-child .bracket-match::before, .bracket-round:last-child .bracket-match::after { display: none; }
+        
+        /* Notifications */
+        #notification-bell { position: relative; }
+        #notification-count {
+            position: absolute; top: -5px; right: -8px;
+            background-color: #ef4444; color: white;
+            font-size: 0.7rem; font-weight: bold;
+            width: 18px; height: 18px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            border: 2px solid var(--color-bg);
+        }
+        #notification-count.hidden { display: none; }
+        #notification-dropdown {
+            display: none; position: absolute;
+            left: 0; top: 100%;
+            margin-top: 10px;
+            background: #111827;
+            border: 1px solid var(--color-border);
+            border-radius: 0.5rem;
+            width: 320px;
+            z-index: 100;
+            color: white;
+        }
+        .notification-item {
+            padding: 0.75rem 1rem; border-bottom: 1px solid var(--color-border);
+            font-size: 0.9rem;
+        }
+        .notification-item:last-child { border-bottom: none; }
+        .notification-item.is-unread { background-color: rgba(8, 145, 178, 0.15); }
     </style>
 </head>
 <body class="antialiased">
@@ -237,6 +267,11 @@
         
         <section id="teams" class="page"><h2 class="text-4xl font-orbitron font-bold mb-8 text-center text-[var(--color-primary-glow)] neon-text-primary">الفرق واللاعبون</h2><div id="teams-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6"></div></section>
         
+        <section id="team-detail" class="page">
+            <button id="back-to-teams" class="mb-6 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition flex items-center"><i class="ph-bold ph-arrow-right ml-2"></i> العودة للفرق</button>
+            <div id="team-detail-content"></div>
+        </section>
+
         <section id="tournament-detail" class="page">
             <button id="back-to-tournaments" class="mb-6 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition flex items-center"><i class="ph-bold ph-arrow-right ml-2"></i> العودة للبطولات</button>
             <div id="tournament-detail-content" class="space-y-8"></div>
@@ -309,7 +344,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
         import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-        import { getFirestore, collection, getDocs, addDoc, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, arrayUnion, arrayRemove, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, addDoc, doc, updateDoc, deleteDoc, setDoc, query, where, getDoc, arrayUnion, arrayRemove, writeBatch, onSnapshot, orderBy } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
         // --- FIREBASE CONFIGURATION ---
         const firebaseConfig = {
@@ -340,11 +375,40 @@
         let users = [];
         let teams = [];
         let tournaments = [];
+        let notifications = [];
         let currentUserData = null;
         const getUserById = (id) => users.find(u => u.id === id);
         const getTeamById = (id) => teams.find(t => t.id === id);
         const getTournamentById = (id) => tournaments.find(t => t.id === id);
         const statusMap = { 'منتهية': 'bg-red-500/30 text-red-400', 'جارية': 'bg-green-500/30 text-green-400', 'جاهزة للبدء': 'bg-amber-500/30 text-amber-400', 'قادمة': 'bg-blue-500/30 text-blue-400' };
+        
+        // --- GLOBAL SCOPE FUNCTIONS ---
+        async function getUserPrizes(uid) {
+            const q = query(collection(db, "prizes"), where("recipientUid", "==", uid));
+            const querySnapshot = await getDocs(q);
+            return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        }
+
+        let countdownIntervals = [];
+        function initCountdowns() {
+            countdownIntervals.forEach(clearInterval); countdownIntervals = [];
+            tournaments.forEach(t => {
+                const el = document.getElementById(`countdown-${t.id}`);
+                if (el) {
+                    const interval = setInterval(() => {
+                        const distance = new Date(t.startTime).getTime() - new Date().getTime();
+                        if(t.status === 'منتهية') { clearInterval(interval); el.textContent = "انتهت"; return; }
+                        if (distance < 0) {
+                            clearInterval(interval); el.textContent = "جارية الآن!";
+                            if(t.status === 'جاهزة للبدء' && currentUserData?.role === 'admin') { updateTournament(t.id, { status: 'جارية'}); }
+                            return;
+                        }
+                        const d=Math.floor(distance/(1000*60*60*24)), h=Math.floor((distance%(1000*60*60*24))/(1000*60*60)), m=Math.floor((distance%(1000*60*60))/(1000*60)), s=Math.floor((distance%(1000*60))/1000);
+                        el.textContent = `${d}ي ${h}س ${m}د ${s}ث`;
+                    }, 1000); countdownIntervals.push(interval);
+                }
+            });
+        }
         
         // --- FIRESTORE DATA FUNCTIONS ---
         async function loadData() {
@@ -365,9 +429,6 @@
                 rerenderAll();
             } catch (error) {
                 console.error("Error loading data from Firestore:", error);
-                if (error.code === 'permission-denied') {
-                    showMessageModal("خطأ في الصلاحيات", "فشل تحميل البيانات. يرجى التأكد من أن قواعد الأمان في Firestore متوافقة مع الكود.", false);
-                }
             }
         }
 
@@ -433,7 +494,7 @@
             const topTeams = [...teams].sort((a, b) => (b.points || 0) - (a.points || 0)).slice(0, 5);
             const homeTeamsList = document.getElementById("home-teams-list");
             if (homeTeamsList) {
-                homeTeamsList.innerHTML = topTeams.map((t, i) => `<div class="flex items-center p-2.5 bg-gray-800/50 rounded-lg"><span class="text-xl font-orbitron font-bold text-[var(--color-secondary)] w-8 text-center">${i+1}</span><i class="ph-duotone ${t.logo} text-3xl text-[var(--color-primary-glow)] mx-3"></i><span class="font-bold text-white">${t.name}</span><span class="mr-auto text-sm text-gray-400">${t.points || 0} نقطة</span></div>`).join('') || '<p class="text-center text-gray-500 p-4">لا توجد فرق بعد.</p>';
+                homeTeamsList.innerHTML = topTeams.map((t, i) => `<div class="flex items-center p-2.5 bg-gray-800/50 rounded-lg"><span class="text-xl font-orbitron font-bold text-[var(--color-secondary)] w-8 text-center">${i+1}</span><i class="ph-duotone ${t.logo} text-3xl text-[var(--color-primary-glow)] mx-3"></i><a href="#team-detail?id=${t.id}" class="font-bold text-white hover:underline view-team-detail-link" data-id="${t.id}">${t.name}</a><span class="mr-auto text-sm text-gray-400">${t.points || 0} نقطة</span></div>`).join('') || '<p class="text-center text-gray-500 p-4">لا توجد فرق بعد.</p>';
             }
             
             initCountdowns();
@@ -482,8 +543,11 @@
                 return `
                 <div class="glass-card p-5 text-center flex flex-col justify-between transform hover:-translate-y-2 transition duration-300">
                     <div>
-                        <i class="ph-duotone ${t.logo} text-6xl text-[var(--color-primary-glow)] mx-auto mb-3"></i>
-                        <h4 class="text-xl font-bold text-white">${t.name}</h4><p class="text-[var(--color-secondary)] font-bold neon-text-secondary">${t.points || 0} نقطة</p>
+                        <a href="#team-detail?id=${t.id}" class="view-team-detail-link" data-id="${t.id}">
+                            <i class="ph-duotone ${t.logo} text-6xl text-[var(--color-primary-glow)] mx-auto mb-3"></i>
+                            <h4 class="text-xl font-bold text-white hover:underline">${t.name}</h4>
+                        </a>
+                        <p class="text-[var(--color-secondary)] font-bold neon-text-secondary">${t.points || 0} نقطة</p>
                         <div class="text-sm text-gray-400 mt-2 h-5">${playerNames}</div>
                         <div class="mt-3 flex justify-center items-center gap-4">
                             <div class="text-xs font-bold px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-300 inline-block">${t.type}</div>
@@ -496,7 +560,7 @@
         };
 
         const renderTournamentDetailPage = (id) => {
-            const t = getTournamentById(id); if (!t) return;
+            const t = getTournamentById(id); if (!t) { navigateTo('#tournaments'); return; }
             const container = document.getElementById('tournament-detail-content');
             
             let bracketHtml = '<div class="glass-card p-4"><h3 class="text-2xl font-orbitron font-bold mb-4 text-center text-white">هيكل البطولة</h3>';
@@ -532,6 +596,63 @@
                 ${bracketHtml}`;
         }
         
+        const renderTeamDetailPage = (id) => {
+            const team = getTeamById(id);
+            if (!team) { navigateTo('#teams'); return; }
+
+            const container = document.getElementById('team-detail-content');
+            const players = team.playerUids.map(uid => getUserById(uid)).filter(Boolean);
+            const totalGames = (team.wins || 0) + (team.losses || 0);
+            const winrate = totalGames > 0 ? Math.round(((team.wins || 0) / totalGames) * 100) : 0;
+            const teamTournaments = tournaments.filter(t => t.participants.some(p => p.teamId === team.id));
+
+            container.innerHTML = `
+                <div class="glass-card p-6 md:p-8 mb-8">
+                    <div class="flex flex-col md:flex-row items-center gap-6">
+                        <i class="ph-duotone ${team.logo} text-8xl md:text-9xl text-[var(--color-primary-glow)]"></i>
+                        <div class="text-center md:text-right">
+                            <h2 class="text-4xl md:text-5xl font-bold text-white font-orbitron">${team.name}</h2>
+                            <p class="text-lg text-[var(--color-secondary)] neon-text-secondary">${team.points || 0} نقطة</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="glass-card p-6 text-center"><p class="text-4xl font-orbitron font-bold text-green-400">${team.wins || 0}</p><p class="text-gray-400 mt-2">انتصارات</p></div>
+                    <div class="glass-card p-6 text-center"><p class="text-4xl font-orbitron font-bold text-red-400">${team.losses || 0}</p><p class="text-gray-400 mt-2">خسارات</p></div>
+                    <div class="glass-card p-6 text-center"><p class="text-4xl font-orbitron font-bold text-cyan-400">${winrate}%</p><p class="text-gray-400 mt-2">معدل الفوز</p></div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="glass-card p-6">
+                        <h3 class="text-2xl font-bold mb-4 font-orbitron">أعضاء الفريق</h3>
+                        <div class="space-y-3">
+                            ${players.map(p => `
+                                <div class="flex items-center gap-4 bg-gray-800/50 p-3 rounded-lg">
+                                    <img src="${p.photoURL}" class="w-12 h-12 rounded-full">
+                                    <span class="font-bold text-white text-lg">${p.displayName}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="glass-card p-6">
+                        <h3 class="text-2xl font-bold mb-4 font-orbitron">سجل البطولات</h3>
+                        <div class="space-y-3">
+                            ${teamTournaments.length > 0 ? teamTournaments.map(t => {
+                                let statusText = t.status;
+                                if(t.winnerId === team.id) statusText = '🏆 البطل';
+                                return `
+                                <div class="flex justify-between items-center bg-gray-800/50 p-3 rounded-lg">
+                                    <a href="#tournament-detail?id=${t.id}" class="view-bracket-btn font-bold text-white hover:underline" data-tournament-id="${t.id}">${t.name}</a>
+                                    <span class="text-sm font-bold text-gray-300">${statusText}</span>
+                                </div>
+                                `}).join('') : '<p class="text-gray-500 text-center">لم يشارك الفريق في أي بطولة بعد.</p>'}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
         async function renderProfilePage() {
             if (!currentUserData) { navigateTo('#login'); return; }
             const profileContent = document.getElementById('profile-content');
@@ -556,7 +677,7 @@
                         <div class="text-center md:text-right">
                             <h2 class="text-3xl md:text-4xl font-bold text-white font-orbitron">${currentUserData.displayName}</h2>
                             <p class="text-lg text-gray-400">${currentUserData.email}</p>
-                            ${team ? `<div class="mt-2 text-xl font-bold text-[var(--color-primary-glow)]">${team.name}</div>` : '<div class="mt-2 text-lg text-gray-500">غير منضم لفريق</div>'}
+                            ${team ? `<a href="#team-detail?id=${team.id}" class="view-team-detail-link mt-2 text-xl font-bold text-[var(--color-primary-glow)] hover:underline" data-id="${team.id}">${team.name}</a>` : '<div class="mt-2 text-lg text-gray-500">غير منضم لفريق</div>'}
                         </div>
                     </div>
 
@@ -735,50 +856,51 @@
             const rounds = {}; t.matches.forEach(m => { if (!rounds[m.round]) rounds[m.round] = []; rounds[m.round].push(m); });
             container.innerHTML = Object.keys(rounds).sort((a,b)=>a-b).map(roundKey => {
                 const roundMatchesHTML = rounds[roundKey].map(m => {
-                    const team1 = getTeamById(m.teams[0]), team2 = getTeamById(m.teams[1]); if(!team1 || !team2) return "";
-                    return `<div class="p-4 bg-gray-800/50 rounded-lg border border-gray-700"><div class="flex justify-between items-center mb-2"><p class="text-sm text-gray-400">الجولة ${m.round} - المباراة ${m.match}</p>${m.winner === null && (t.status ==='جارية' || t.status === 'جاهزة للبدء') ? `<button class="manage-match-btn text-blue-400 hover:text-white text-sm flex items-center gap-1" data-tournament-id="${t.id}" data-match-id="${m.match}"><i class="ph-bold ph-pencil-simple"></i> تحديث</button>`:''}</div><div class="flex items-center justify-between"><div class="font-bold text-lg ${m.winner === team1.id ? 'text-green-400' : 'text-white'}">${team1.name}</div><div class="font-orbitron text-center text-xl text-gray-500">${m.score ? `${m.score[0]} - ${m.score[1]}` : 'VS'}<p class="text-xs font-sans">${m.map || 'لم تلعب'}</p></div><div class="font-bold text-lg ${m.winner === team2.id ? 'text-green-400' : 'text-white'}">${team2.name}</div></div></div>`
+                    const team1 = getTeamById(m.teams[0]), team2 = getTeamById(m.teams[1]);
+                    return `<div class="p-4 bg-gray-800/50 rounded-lg border border-gray-700"><div class="flex justify-between items-center mb-2"><p class="text-sm text-gray-400">الجولة ${m.round} - المباراة ${m.match}</p>${m.winner === null && team1 && team2 && (t.status ==='جارية' || t.status === 'جاهزة للبدء') ? `<button class="manage-match-btn text-blue-400 hover:text-white text-sm flex items-center gap-1" data-tournament-id="${t.id}" data-match-id="${m.match}"><i class="ph-bold ph-pencil-simple"></i> تحديث</button>`:''}</div><div class="flex items-center justify-between"><div class="font-bold text-lg ${m.winner === team1?.id ? 'text-green-400' : 'text-white'}">${team1?.name || '...'}</div><div class="font-orbitron text-center text-xl text-gray-500">${m.score ? `${m.score[0]} - ${m.score[1]}` : 'VS'}<p class="text-xs font-sans">${m.map || 'لم تلعب'}</p></div><div class="font-bold text-lg ${m.winner === team2?.id ? 'text-green-400' : 'text-white'}">${team2?.name || '...'}</div></div></div>`
                 }).join("");
-                return `<div class="mb-6"><div class="space-y-3">${roundMatchesHTML}</div></div>`;
+                return `<h4 class="font-bold text-xl text-cyan-400 mb-2 mt-4 border-b border-cyan-800 pb-1">الجولة ${roundKey}</h4><div class="space-y-3">${roundMatchesHTML}</div>`;
             }).join("");
         };
         
-        // --- MODAL & NAVIGATION LOGIC ---
-        const modalBackdrop = document.getElementById('modal-backdrop'); const allModals = document.querySelectorAll('.modal');
-        const showMessageModal = (title, message, isSuccess = true) => { closeAllModals(); const m=document.getElementById('message-modal'); m.querySelector('#message-modal-title').textContent = title; m.querySelector('#message-modal-message').textContent = message; m.querySelector('#message-modal-icon').innerHTML = isSuccess ? `<i class="ph-duotone ph-check-circle text-6xl text-green-400"></i>` : `<i class="ph-duotone ph-x-circle text-6xl text-red-400"></i>`; modalBackdrop.classList.remove('hidden'); m.classList.remove('hidden'); }
-        const closeAllModals = () => { modalBackdrop.classList.add('hidden'); allModals.forEach(m => m.classList.add('hidden')); }
-        modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop || e.target.classList.contains('modal-close')) { closeAllModals(); } });
-        
-        // --- AUTHENTICATION LOGIC ---
+        // --- AUTH & NOTIFICATION LOGIC ---
+        let notificationsListener = null;
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 const userRef = doc(db, "users", user.uid);
                 const userSnap = await getDoc(userRef);
 
                 if (!userSnap.exists()) {
-                    const newTeamData = {
-                        name: user.displayName, type: '1v1', playerUids: [user.uid],
-                        logo: 'ph-user', points: 0, wins: 0, losses: 0, pendingRequests: []
-                    };
+                    const newTeamData = { name: user.displayName, type: '1v1', playerUids: [user.uid], logo: 'ph-user', points: 0, wins: 0, losses: 0, pendingRequests: [] };
                     const newTeamRef = await addDoc(collection(db, "teams"), newTeamData);
                     
-                    const newUserData = {
-                        id: user.uid, email: user.email, displayName: user.displayName, photoURL: user.photoURL,
-                        role: ADMIN_EMAILS.includes(user.email) ? 'admin' : 'user', 
-                        teamId: newTeamRef.id,
-                        status: 'pending_approval'
-                    };
+                    const newUserData = { id: user.uid, email: user.email, displayName: user.displayName, photoURL: user.photoURL, role: ADMIN_EMAILS.includes(user.email) ? 'admin' : 'user', teamId: newTeamRef.id, status: 'pending_approval' };
                     await setDoc(userRef, newUserData);
                     currentUserData = newUserData;
                 } else {
                     currentUserData = {id: user.uid, ...userSnap.data()};
                 }
+                
+                if(notificationsListener) notificationsListener(); 
+                listenForNotifications(user.uid);
+
             } else {
                 currentUserData = null;
+                if(notificationsListener) notificationsListener();
+                notifications = [];
             }
             renderAuthUI();
             await loadData();
             navigateTo(window.location.hash || '#home', true);
         });
+
+        function listenForNotifications(uid) {
+            const q = query(collection(db, `users/${uid}/notifications`), orderBy("timestamp", "desc"));
+            notificationsListener = onSnapshot(q, (snapshot) => {
+                notifications = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderNotifications();
+            });
+        }
 
         function renderAuthUI() {
             const authContainer = document.getElementById('auth-container');
@@ -787,8 +909,14 @@
 
             if (currentUserData) {
                 const isAdmin = currentUserData.role === 'admin';
-                const navLinks = `<a href="#profile" class="nav-link text-gray-300 hover:text-white transition">ملفي الشخصي</a> ${isAdmin ? `<a href="#admin" class="nav-link font-bold text-cyan-400">لوحة التحكم</a>` : ''} <button id="logout-btn" class="bg-red-600/80 hover:bg-red-500 text-white text-sm font-bold py-2 px-4 rounded-md transition">خروج</button>`;
-                const mobileNavLinks = `<a href="#profile" class="nav-link block text-center py-3 text-lg text-white hover:bg-[var(--color-primary)]/20 transition">ملفي الشخصي</a> ${isAdmin ? `<a href="#admin" class="nav-link block text-center py-3 text-lg text-white hover:bg-[var(--color-primary)]/20 transition">لوحة التحكم</a>` : ''} <button id="mobile-logout-btn" class="w-11/12 mx-auto mt-2 bg-red-600/80 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition">خروج</button>`;
+                const navLinks = `
+                    <div class="relative">
+                        <button id="notification-bell" class="text-gray-300 hover:text-white transition"><i class="ph-bold ph-bell text-2xl"></i><span id="notification-count" class="hidden">0</span></button>
+                        <div id="notification-dropdown"></div>
+                    </div>
+                    <a href="#profile" class="nav-link text-gray-300 hover:text-white transition">ملفي الشخصي</a> ${isAdmin ? `<a href="#admin" class="nav-link font-bold text-cyan-400">لوحة التحكم</a>` : ''} <button id="logout-btn" class="bg-red-600/80 hover:bg-red-500 text-white text-sm font-bold py-2 px-4 rounded-md transition">خروج</button>`;
+                const mobileNavLinks = `
+                    <a href="#profile" class="nav-link block text-center py-3 text-lg text-white hover:bg-[var(--color-primary)]/20 transition">ملفي الشخصي</a> ${isAdmin ? `<a href="#admin" class="nav-link block text-center py-3 text-lg text-white hover:bg-[var(--color-primary)]/20 transition">لوحة التحكم</a>` : ''} <button id="mobile-logout-btn" class="w-11/12 mx-auto mt-2 bg-red-600/80 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-md transition">خروج</button>`;
                 authContainer.innerHTML = navLinks; mobileAuthContainer.innerHTML = mobileNavLinks;
             } else {
                 authContainer.innerHTML = `<button id="login-btn" class="btn-primary text-sm py-2">تسجيل الدخول</button>`;
@@ -825,6 +953,14 @@
             await loadData(); showMessageModal('نجاح', 'تم حذف العنصر بنجاح.');
         }
         
+        async function sendNotification(uid, message) {
+            await addDoc(collection(db, `users/${uid}/notifications`), {
+                message,
+                read: false,
+                timestamp: new Date()
+            });
+        }
+        
         async function requestToJoinTeam(teamId) {
             if (!currentUserData || currentUserData.teamId || currentUserData.status !== 'approved') return;
             await updateDoc(doc(db, 'teams', teamId), {
@@ -839,11 +975,15 @@
             const batch = writeBatch(db);
             const teamRef = doc(db, 'teams', teamId);
             const userRef = doc(db, 'users', requesterId);
+            const team = getTeamById(teamId);
 
             batch.update(teamRef, { pendingRequests: arrayRemove(requesterId) });
             if (approve) {
                 batch.update(teamRef, { playerUids: arrayUnion(requesterId) });
                 batch.update(userRef, { teamId: teamId });
+                await sendNotification(requesterId, `تم قبول طلب انضمامك لفريق ${team.name}.`);
+            } else {
+                await sendNotification(requesterId, `تم رفض طلب انضمامك لفريق ${team.name}.`);
             }
             
             await batch.commit();
@@ -866,6 +1006,7 @@
 
         async function handleRegistration(tId, teamId, approve) {
             const t = getTournamentById(tId);
+            const team = getTeamById(teamId);
             const registration = t.participants.find(p => p.teamId === teamId);
             if (!registration) return;
             
@@ -874,28 +1015,30 @@
             if (approve) {
                 registration.status = 'approved';
                 await updateDoc(doc(db, 'tournaments', tId), { participants: arrayUnion(registration) });
+                for(const uid of team.playerUids) {
+                    await sendNotification(uid, `تم قبول تسجيل فريقكم "${team.name}" في بطولة ${t.name}.`);
+                }
             }
             
             await loadData();
             renderAdminTournamentDetail(tId);
         }
 
-        async function advanceBracket(tId, currentRound, match) {
+        async function advanceBracket(tId, winningTeamId, playedMatch) {
             const t = getTournamentById(tId);
-            
-            // Advance winner of current match
-            const nextMatchId = Math.floor((match.match -1) / 2) + 1 + Math.max(...t.matches.filter(m => m.round === currentRound).map(m=>m.match));
-            const nextMatchIndex = t.matches.findIndex(m => m.round === currentRound + 1 && m.match === nextMatchId);
-            
-            if (nextMatchIndex !== -1) {
-                if (t.matches[nextMatchIndex].teams[0] === null || t.matches[nextMatchIndex].teams[0] === match.teams[0] || t.matches[nextMatchIndex].teams[0] === match.teams[1]) {
-                    t.matches[nextMatchIndex].teams[0] = match.winner;
-                } else {
-                    t.matches[nextMatchIndex].teams[1] = match.winner;
-                }
+            if (!t || !playedMatch.nextMatch) return;
+        
+            const nextMatchIndex = t.matches.findIndex(m => m.uid === playedMatch.nextMatch.uid);
+            if (nextMatchIndex === -1) return;
+        
+            if (playedMatch.nextMatch.slot === 0) {
+                t.matches[nextMatchIndex].teams[0] = winningTeamId;
+            } else {
+                t.matches[nextMatchIndex].teams[1] = winningTeamId;
             }
-            await updateTournament(tId, { matches: t.matches });
-        };
+        
+            await updateTournament(t.id, { matches: t.matches });
+        }
         
         document.addEventListener('submit', async e => {
             e.preventDefault();
@@ -944,92 +1087,111 @@
                 const score1=parseInt(e.target.querySelector('#match-m-team1-score').value)||0, score2=parseInt(e.target.querySelector('#match-m-team2-score').value)||0;
                 const team1=getTeamById(t.matches[matchIndex].teams[0]), team2=getTeamById(t.matches[matchIndex].teams[1]);
                 const oldWinnerId = t.matches[matchIndex].winner;
+                
+                let newWinnerId = null;
+                if(score1 >= t.scoreToWin && score1 > score2) newWinnerId=team1.id; else if(score2 >= t.scoreToWin && score2 > score1) newWinnerId=team2.id;
+                
                 t.matches[matchIndex].map=e.target.querySelector('#match-m-map').value; t.matches[matchIndex].serverInfo = e.target.querySelector('#match-m-server-info').value; t.matches[matchIndex].score=[score1,score2];
-                if(score1 >= t.scoreToWin && score1 > score2) t.matches[matchIndex].winner=team1.id; else if(score2 >= t.scoreToWin && score2 > score1) t.matches[matchIndex].winner=team2.id; else t.matches[matchIndex].winner=null;
-                closeAllModals(); await updateDoc(doc(db, 'tournaments', t.id), { matches: t.matches });
-                if (oldWinnerId !== t.matches[matchIndex].winner) {
-                    const oldWinner = getTeamById(oldWinnerId); if(oldWinner) { await updateTeam(oldWinner.id, { wins: Math.max(0, (oldWinner.wins || 0) - 1), points: Math.max(0, (oldWinner.points || 0) - 100) }); }
-                    const oldLoser = getTeamById(oldWinnerId === team1.id ? team2.id : team1.id); if(oldLoser) { await updateTeam(oldLoser.id, { losses: Math.max(0, (oldLoser.losses || 0) - 1) }); }
-                    const newWinnerId = t.matches[matchIndex].winner;
+                t.matches[matchIndex].winner = newWinnerId;
+                
+                closeAllModals();
+
+                if (oldWinnerId !== newWinnerId) {
+                    if(oldWinnerId) {
+                        const oldWinner = getTeamById(oldWinnerId); if(oldWinner) { await updateTeam(oldWinner.id, { wins: Math.max(0, (oldWinner.wins || 0) - 1), points: Math.max(0, (oldWinner.points || 0) - 100) }); }
+                        const oldLoser = getTeamById(oldWinnerId === team1.id ? team2.id : team1.id); if(oldLoser) { await updateTeam(oldLoser.id, { losses: Math.max(0, (oldLoser.losses || 0) - 1) }); }
+                    }
                     if(newWinnerId) {
                          const newWinner = getTeamById(newWinnerId); if (newWinner) { await updateTeam(newWinner.id, { wins: (newWinner.wins || 0) + 1, points: (newWinner.points || 0) + 100 }); }
                          const newLoser = getTeamById(newWinnerId === team1.id ? team2.id : team1.id); if (newLoser) { await updateTeam(newLoser.id, { losses: (newLoser.losses || 0) + 1 }); }
                     }
                 }
-                const updatedT = await updateTournament(tId, { matches: t.matches });
-                const updatedMatch = updatedT.matches[matchIndex];
-                if (updatedMatch.winner) { await advanceBracket(tId, updatedMatch.round, updatedMatch); }
+                
+                if (newWinnerId) {
+                    await advanceBracket(tId, newWinnerId, t.matches[matchIndex]);
+                } else {
+                    await updateTournament(tId, { matches: t.matches });
+                }
+
+                const finalT = getTournamentById(tId);
+                const playedMatch = finalT.matches.find(m => m.match === mId);
+                const isFinal = !playedMatch.nextMatch;
+                if(isFinal && playedMatch.winner) {
+                     await updateTournament(tId, { winnerId: playedMatch.winner, status: 'منتهية' });
+                }
+
                 renderAdminTournamentDetail(tId);
             }
             if (e.target.id === 'deliver-prize-form') {
                 const tId = e.target.querySelector('#prize-tournament-id').value; const teamId = e.target.querySelector('#prize-team-id').value;
                 const desc = e.target.querySelector('#prize-description').value; const codes = Array.from(e.target.querySelectorAll('input[name="prize-code"]')).map(input => ({uid: input.dataset.uid, code: input.value}));
-                await deliverPrize(tId, teamId, desc, codes.filter(c => c.code)); closeAllModals(); showMessageModal('نجاح!', 'تم إرسال الجائزة بنجاح.');
+                
+                const batch = writeBatch(db);
+                codes.filter(c => c.code).forEach(item => {
+                    const prizeRef = doc(collection(db, "prizes"));
+                    batch.set(prizeRef, { tournamentId, tournamentName: getTournamentById(tId).name, recipientUid: item.uid, teamId, prizeDescription: desc, prizeCode: item.code, awardedAt: new Date() });
+                    sendNotification(item.uid, `لقد فزت بجائزة في بطولة ${getTournamentById(tId).name}!`);
+                });
+                await batch.commit();
+
+                closeAllModals(); showMessageModal('نجاح!', 'تم إرسال الجائزة بنجاح.');
             }
         });
         
-        // --- PRIZE FUNCTIONS ---
-        async function deliverPrize(tournamentId, teamId, prizeDesc, prizeData) {
-            const tournament = getTournamentById(tournamentId);
-            for (const item of prizeData) { await addDoc(collection(db, "prizes"), { tournamentId, tournamentName: tournament.name, recipientUid: item.uid, teamId, prizeDescription: prizeDesc, prizeCode: item.code, awardedAt: new Date() }); }
-        }
-        async function getUserPrizes(uid) {
-            const q = query(collection(db, "prizes"), where("recipientUid", "==", uid));
-            const querySnapshot = await getDocs(q);
-            return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        }
-
-        // --- COUNTDOWN LOGIC ---
-        let countdownIntervals = [];
-        function initCountdowns() {
-            countdownIntervals.forEach(clearInterval); countdownIntervals = [];
-            tournaments.forEach(t => {
-                const el = document.getElementById(`countdown-${t.id}`);
-                if (el) {
-                    const interval = setInterval(() => {
-                        const distance = new Date(t.startTime).getTime() - new Date().getTime();
-                        if(t.status === 'منتهية') { clearInterval(interval); el.textContent = "انتهت"; return; }
-                        if (distance < 0) {
-                            clearInterval(interval); el.textContent = "جارية الآن!";
-                            if(t.status === 'جاهزة للبدء' && currentUserData?.role === 'admin') { updateTournament(t.id, { status: 'جارية'}); }
-                            return;
-                        }
-                        const d=Math.floor(distance/(1000*60*60*24)), h=Math.floor((distance%(1000*60*60*24))/(1000*60*60)), m=Math.floor((distance%(1000*60*60))/(1000*60)), s=Math.floor((distance%(1000*60))/1000);
-                        el.textContent = `${d}ي ${h}س ${m}د ${s}ث`;
-                    }, 1000); countdownIntervals.push(interval);
-                }
-            });
-        }
-        
         // --- NAVIGATION & EVENT DELEGATION ---
         const navigateTo = (hash, isInitialLoad = false) => {
-            const isAdmin = currentUserData?.role === 'admin';
-            if (hash === '#admin' && !isAdmin) { window.location.hash = '#home'; return; }
-            if (hash === '#login' && currentUserData) { window.location.hash = '#home'; return; }
-            if (hash === '#profile' && !currentUserData) { window.location.hash = '#login'; return; }
+            const [path, query] = (hash.split('?'));
+            const params = new URLSearchParams(query);
+            const id = params.get('id');
 
-            const defaultHash = '#home'; const targetHash = (hash === '' || hash === '#') ? defaultHash : hash;
-            let targetPage = document.querySelector(targetHash);
+            const isAdmin = currentUserData?.role === 'admin';
+            if (path === '#admin' && !isAdmin) { window.location.hash = '#home'; return; }
+            if (path === '#login' && currentUserData) { window.location.hash = '#home'; return; }
+            if (path === '#profile' && !currentUserData) { window.location.hash = '#login'; return; }
+
+            const defaultHash = '#home';
+            const targetPath = (path === '' || path === '#') ? defaultHash : path;
+            let targetPage = document.querySelector(targetPath);
+
             if (!targetPage) { window.location.hash = defaultHash; return; }
-            if (targetPage.id === 'tournament-detail' && isInitialLoad) { window.location.hash = '#tournaments'; return; }
             
-            if (targetHash === '#profile') renderProfilePage();
-            if (targetHash === '#home') renderHomePage(); // Rerender home page on navigation
+            if (targetPath === '#profile') renderProfilePage();
+            if (targetPath === '#home') renderHomePage();
+            if (targetPath === '#team-detail' && id) renderTeamDetailPage(id);
+            if (targetPath === '#tournament-detail' && id) renderTournamentDetailPage(id);
 
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('text-white', 'border-b-2', 'border-[var(--color-primary)]'));
-            const activeLink = document.querySelector(`.nav-link[href="${targetHash}"]`);
+            const activeLink = document.querySelector(`.nav-link[href="${targetPath}"]`);
             if(activeLink) activeLink.classList.add('text-white', 'border-b-2', 'border-[var(--color-primary)]');
             targetPage.classList.add('active'); window.scrollTo(0, 0);
         };
         
         document.addEventListener('click', async e => {
-            const viewBracketBtn = e.target.closest('.view-bracket-btn'); if(viewBracketBtn){ window.location.hash=`#tournament-detail`; renderTournamentDetailPage(viewBracketBtn.dataset.tournamentId); }
+            const viewBracketBtn = e.target.closest('.view-bracket-btn'); if(viewBracketBtn){ window.location.hash=`#tournament-detail?id=${viewBracketBtn.dataset.tournamentId}`; }
+            const viewTeamDetailLink = e.target.closest('.view-team-detail-link'); if(viewTeamDetailLink){ e.preventDefault(); window.location.hash=`#team-detail?id=${viewTeamDetailLink.dataset.id}`;}
             const registerBtn = e.target.closest('.register-tournament-btn'); if(registerBtn){ await registerForTournament(registerBtn.dataset.id); }
             const requestJoinBtn = e.target.closest('.request-join-btn'); if(requestJoinBtn){ await requestToJoinTeam(requestJoinBtn.dataset.teamid); }
             const revealBtn = e.target.closest('.reveal-prize-btn'); if (revealBtn) { revealBtn.classList.add('hidden'); revealBtn.nextElementSibling.classList.remove('hidden'); }
             const copyBtn = e.target.closest('.copy-code-btn'); if (copyBtn) { navigator.clipboard.writeText(copyBtn.dataset.code); showMessageModal('تم النسخ!', 'تم نسخ كود الجائزة إلى الحافظة.'); }
             
+            const bell = document.getElementById('notification-bell');
+            const dropdown = document.getElementById('notification-dropdown');
+            if (bell && dropdown) {
+                if (bell.contains(e.target)) {
+                    dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+                    if(dropdown.style.display === 'block' && notifications.some(n=>!n.read)) {
+                        const batch = writeBatch(db);
+                        notifications.filter(n=>!n.read).forEach(n=>{
+                            batch.update(doc(db, `users/${currentUserData.id}/notifications/${n.id}`), { read: true });
+                        });
+                        await batch.commit();
+                    }
+                } else if (!dropdown.contains(e.target)) {
+                    dropdown.style.display = 'none';
+                }
+            }
+
             if (!currentUserData || currentUserData.role !== 'admin') return;
             const isAdminPage = document.getElementById('admin').classList.contains('active'); if (!isAdminPage && !e.target.closest('.modal')) return;
             
@@ -1072,50 +1234,49 @@
                     return;
                 }
 
-                // --- NEW BRACKET LOGIC ---
-                let shuffledTeams = [...approvedTeams].sort(() => 0.5 - Math.random());
-                const numTeams = shuffledTeams.length;
-                const nextPowerOfTwo = Math.pow(2, Math.ceil(Math.log2(numTeams)));
-                const numByes = nextPowerOfTwo - numTeams;
-                const numRound1Matches = (numTeams - numByes) / 2;
+                let teams = [...approvedTeams].sort(() => 0.5 - Math.random());
+                const numTeams = teams.length;
+                const rounds = Math.ceil(Math.log2(numTeams));
+                const bracketSize = Math.pow(2, rounds);
+                const numByes = bracketSize - numTeams;
 
                 let matches = [];
-                let matchIdCounter = 1;
-                let round1Winners = [];
+                let matchCounter = 1;
 
-                // Assign Byes
-                const teamsWithByes = shuffledTeams.splice(0, numByes);
-                teamsWithByes.forEach(teamId => {
-                    round1Winners.push(teamId);
+                for (let r = 1; r <= rounds; r++) {
+                    const numMatchesInRound = Math.pow(2, rounds - r);
+                    for (let i = 0; i < numMatchesInRound; i++) {
+                        matches.push({
+                            uid: `r${r}m${i}`, match: matchCounter++, round: r,
+                            teams: [null, null], winner: null, score: null, map: null, serverInfo: null,
+                            nextMatch: null
+                        });
+                    }
+                }
+
+                matches.forEach(match => {
+                    if (match.round < rounds) {
+                        const matchIndexInRound = matches.filter(m=>m.round === match.round).findIndex(m=>m.uid === match.uid);
+                        const nextRoundStartIndex = matches.findIndex(m => m.round === match.round + 1);
+                        const nextMatch = matches[nextRoundStartIndex + Math.floor(matchIndexInRound / 2)];
+                        match.nextMatch = { uid: nextMatch.uid, slot: matchIndexInRound % 2 };
+                    }
                 });
-
-                // Create Round 1 Matches
-                for (let i = 0; i < numRound1Matches; i++) {
-                    const team1 = shuffledTeams.shift();
-                    const team2 = shuffledTeams.shift();
-                    matches.push({
-                        round: 1, match: matchIdCounter++, teams: [team1, team2],
-                        winner: null, map: null, score: null, serverInfo: ''
-                    });
+                
+                let teamsToPlace = [...teams];
+                let round1Matches = matches.filter(m => m.round === 1);
+                
+                for(let i = 0; i < numByes; i++) {
+                    const byeTeam = teamsToPlace.shift();
+                    const matchToSkip = round1Matches[i];
+                    const nextMatch = matches.find(m => m.uid === matchToSkip.nextMatch.uid);
+                    nextMatch.teams[matchToSkip.nextMatch.slot] = byeTeam;
                 }
                 
-                // Setup further rounds if needed
-                let currentRoundWinners = [...round1Winners];
-                let teamsForNextRound = [...t.matches.filter(m => m.round === 1).map(() => null), ...currentRoundWinners];
-                let roundCounter = 2;
-
-                while(teamsForNextRound.length > 1) {
-                    let nextRoundTeams = [];
-                    for(let i=0; i<teamsForNextRound.length; i+=2) {
-                        matches.push({
-                            round: roundCounter, match: matchIdCounter++,
-                            teams: [teamsForNextRound[i], teamsForNextRound[i+1]],
-                            winner: null, map: null, score: null, serverInfo: ''
-                        });
-                        nextRoundTeams.push(null);
-                    }
-                    teamsForNextRound = nextRoundTeams;
-                    roundCounter++;
+                let matchesToPlay = round1Matches.slice(numByes);
+                for(let match of matchesToPlay) {
+                    match.teams[0] = teamsToPlace.shift();
+                    match.teams[1] = teamsToPlace.shift();
                 }
 
                 await updateTournament(tId, { matches: matches, winnerId: null, status: 'جاهزة للبدء'});
@@ -1135,9 +1296,28 @@
         document.querySelectorAll('.nav-link').forEach(link => { link.addEventListener('click', e => { e.preventDefault(); if(window.location.hash !== e.target.getAttribute('href')) window.location.hash = e.target.getAttribute('href'); document.getElementById('mobile-menu').classList.add('hidden'); }); });
         document.getElementById('mobile-menu-button').addEventListener('click', () => { document.getElementById('mobile-menu').classList.toggle('hidden'); });
         document.getElementById('back-to-tournaments').addEventListener('click', () => window.location.hash = '#tournaments');
+        document.getElementById('back-to-teams').addEventListener('click', () => window.location.hash = '#teams');
         document.querySelectorAll('.admin-tab-btn').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.admin-tab-btn').forEach(b=>b.classList.remove('active','border-[var(--color-primary)]','text-[var(--color-primary)]'));btn.classList.add('active','border-[var(--color-primary)]','text-[var(--color-primary)]');document.querySelectorAll('.admin-tab-content').forEach(c=>c.classList.remove('active'));document.getElementById(btn.dataset.target).classList.add('active');});});
 
-        // --- MODAL OPENERS ---
+        // --- MODAL OPENERS & NOTIFICATIONS ---
+        function renderNotifications() {
+            const countEl = document.getElementById('notification-count');
+            const dropdownEl = document.getElementById('notification-dropdown');
+            if(!countEl || !dropdownEl) return;
+
+            const unreadCount = notifications.filter(n => !n.read).length;
+            countEl.textContent = unreadCount;
+            if (unreadCount > 0) {
+                countEl.classList.remove('hidden');
+            } else {
+                countEl.classList.add('hidden');
+            }
+
+            dropdownEl.innerHTML = notifications.length > 0 ? 
+                notifications.map(n => `<div class="notification-item ${!n.read ? 'is-unread' : ''}">${n.message}</div>`).join('') :
+                '<div class="notification-item text-gray-400">لا توجد إشعارات.</div>';
+        }
+
         function openCreateTournamentModal() {
             const modal = document.getElementById('create-tournament-modal');
             modal.innerHTML = `<h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">إنشاء بطولة جديدة</h3>
