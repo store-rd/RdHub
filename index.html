@@ -446,7 +446,7 @@
             const detailView = document.getElementById('admin-tournament-detail-view');
             
             const availableTeams = teams.filter(team => team.type === t.type);
-            const canGenerateBracket = t.status === 'قادمة' || t.status === 'جاهزة للبدء';
+            const canManageTeams = t.status === 'قادمة' || t.status === 'جاهزة للبدء';
             
             detailView.innerHTML = `
                 <button id="back-to-tournaments-list" class="mb-6 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition flex items-center"><i class="ph-bold ph-arrow-right ml-2"></i> العودة لقائمة البطولات</button>
@@ -467,16 +467,15 @@
                         </div>
                         
                         <div class="glass-card p-6">
-                            <h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">الفرق المشاركة</h3>
+                            <h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">الفرق المشاركة (${t.registeredTeams.length})</h3>
                             <div id="admin-detail-registered-teams" class="space-y-2 mb-4 max-h-60 overflow-y-auto pr-2">${
                                 availableTeams.map(team => `
                                 <label class="flex items-center space-x-2 space-x-reverse p-2 bg-gray-900 rounded-md cursor-pointer hover:bg-gray-800">
-                                    <input type="checkbox" class="form-checkbox bg-gray-700 border-gray-600 text-cyan-500" value="${team.id}" ${t.registeredTeams.includes(team.id) ? 'checked' : ''} ${!canGenerateBracket ? 'disabled' : ''}>
+                                    <input type="checkbox" class="form-checkbox tournament-team-cb bg-gray-700 border-gray-600 text-cyan-500" value="${team.id}" ${t.registeredTeams.includes(team.id) ? 'checked' : ''} ${!canManageTeams ? 'disabled' : ''}>
                                     <span>${team.name}</span>
                                 </label>`).join('') || '<p class="text-gray-500">لا توجد فرق متاحة من هذا النوع.</p>'
                             }</div>
-                            ${canGenerateBracket ? `<button id="save-registered-teams" data-id="${t.id}" class="btn-primary w-full mb-3">حفظ الفرق</button>` : ''}
-                            ${(t.status === 'قادمة' || t.status === 'جاهزة للبدء') ? `
+                            ${canManageTeams ? `
                                 <button id="generate-bracket-btn" data-id="${t.id}" class="btn-secondary w-full" ${t.registeredTeams.length < 2 || t.registeredTeams.length % 2 !== 0 ? 'disabled' : ''}>
                                     ${t.matches.length > 0 ? 'إعادة إنشاء الهيكل' : 'إنشاء الهيكل الأولي'}
                                 </button>
@@ -571,7 +570,7 @@
                     window.location.hash = '#admin';
                 }
             } catch (error) {
-                errorP.textContent = "فشل تسجيل الدخول. تأكد من أن النطاق معتمد في Firebase.";
+                errorP.textContent = "فشل تسجيل الدخول. تأكد من أن النطاق معتمد في Firebase أو أن إضافات المتصفح لا تمنع النافذة المنبثقة.";
             }
         });
 
@@ -581,7 +580,7 @@
                 e.preventDefault(); 
                 const n=document.getElementById('t-name').value, type=document.getElementById('t-type').value, score=document.getElementById('t-score-to-win').value, maps=document.getElementById('t-map-pool').value.split(',').map(s=>s.trim()), time=document.getElementById('t-start-time').value; 
                 if(!n||!score||!time) { showMessageModal('خطأ', 'الرجاء ملء جميع الحقول.', false); return; } 
-                tournaments.push({ id: nextTournamentId++, name: n, type: type, scoreToWin: parseInt(score), mapPool: maps.filter(Boolean), startTime: time, status: 'قادمة', registeredTeams: [], matches: [], winnerId: null }); 
+                tournaments.unshift({ id: nextTournamentId++, name: n, type: type, scoreToWin: parseInt(score), mapPool: maps.filter(Boolean), startTime: time, status: 'قادمة', registeredTeams: [], matches: [], winnerId: null }); 
                 closeAllModals(); rerenderAll(); showMessageModal('نجاح!', 'تم إنشاء البطولة بنجاح.');
             }
             if(e.target.id === 'create-team-form') {
@@ -591,7 +590,7 @@
                 const players = Array.from(playerNodes).map(input=>input.value.trim()).filter(Boolean); 
                 if(!name || players.length === 0){showMessageModal('خطأ','الرجاء إدخال اسم الفريق/اللاعب وأسماء اللاعبين.',false);return} 
                 const logo = type === '1v1' ? 'ph-user' : 'ph-users-two'; 
-                teams.push({id:nextTeamId++, name:name, players:players, type:type, points:0, wins: 0, losses: 0, logo:logo});
+                teams.unshift({id:nextTeamId++, name:name, players:players, type:type, points:0, wins: 0, losses: 0, logo:logo});
                 closeAllModals(); rerenderAll(); showMessageModal('نجاح!',`تم إضافة ${type === '1v1' ? 'اللاعب' : 'الفريق'} بنجاح.`);
             }
             if(e.target.id === 'edit-team-form') { 
@@ -713,29 +712,54 @@
         };
         
         document.addEventListener('click', e => {
-            const editTeamBtn = e.target.closest('.edit-team-btn'); if(editTeamBtn) openEditTeamModal(parseInt(editTeamBtn.dataset.id));
-            const deleteBtn = e.target.closest('.delete-item-btn'); if(deleteBtn) openConfirmDeleteModal(deleteBtn.dataset.type, parseInt(deleteBtn.dataset.id));
+            // Public Clicks
             const viewBracketBtn = e.target.closest('.view-bracket-btn'); if(viewBracketBtn){ window.location.hash=`#tournament-detail`; renderBracket(parseInt(viewBracketBtn.dataset.tournamentId)); }
+
+            // Admin Clicks
+            const isAdminPage = document.getElementById('admin').classList.contains('active');
+            if (!isAdminPage) return;
             
-            // Admin specific clicks
             if (e.target.closest('#show-create-tournament-modal')) openCreateTournamentModal();
             if (e.target.closest('#show-create-team-modal')) openCreateTeamModal();
+            
             const manageTBtn = e.target.closest('.admin-manage-tournament-btn'); if(manageTBtn) renderAdminTournamentDetail(parseInt(manageTBtn.dataset.id));
             if(e.target.closest('#back-to-tournaments-list')) { document.getElementById('admin-tournament-detail-view').classList.add('hidden'); document.getElementById('admin-tournaments-list-view').classList.remove('hidden'); }
+            
             const editTBtn = e.target.closest('.edit-tournament-btn'); if(editTBtn) openEditTournamentModal(parseInt(editTBtn.dataset.id));
-            const saveTeamsBtn = e.target.closest('#save-registered-teams'); 
-            if(saveTeamsBtn) {
-                const tId = parseInt(saveTeamsBtn.dataset.id); const t = getTournamentById(tId);
-                const selectedTeamIds = Array.from(document.querySelectorAll('#admin-detail-registered-teams input:checked')).map(cb => parseInt(cb.value));
-                t.registeredTeams = selectedTeamIds;
-                showMessageModal('نجاح', 'تم حفظ قائمة الفرق المشاركة.');
-                renderAdminTournamentDetail(tId);
-            }
+            const editTeamBtn = e.target.closest('.edit-team-btn'); if(editTeamBtn) openEditTeamModal(parseInt(editTeamBtn.dataset.id));
+            
+            const deleteBtn = e.target.closest('.delete-item-btn'); if(deleteBtn) openConfirmDeleteModal(deleteBtn.dataset.type, parseInt(deleteBtn.dataset.id));
+
             if(e.target.closest('#generate-bracket-btn')) generateBracket(parseInt(e.target.closest('#generate-bracket-btn').dataset.id));
             const manageMatchBtn = e.target.closest('.manage-match-btn'); if(manageMatchBtn) openManageMatchModal(parseInt(manageMatchBtn.dataset.tournamentId), parseInt(manageMatchBtn.dataset.matchId));
         });
 
-        document.getElementById('confirm-delete-btn').addEventListener('click',()=>{const type=document.getElementById('delete-item-type').value,id=parseInt(document.getElementById('delete-item-id').value);if(type==='tournament')tournaments=tournaments.filter(t=>t.id!==id);if(type==='team')teams=teams.filter(t=>t.id!==id);closeAllModals();rerenderAll();showMessageModal('نجاح','تم حذف العنصر بنجاح.');});
+        // This listener is specifically for the dynamic team checkboxes in the admin detail view
+        document.addEventListener('change', e => {
+             if (e.target.classList.contains('tournament-team-cb')) {
+                const detailView = document.getElementById('admin-tournament-detail-view');
+                if (!detailView || detailView.classList.contains('hidden')) return;
+                
+                const tId = parseInt(detailView.querySelector('#generate-bracket-btn, .edit-tournament-btn').dataset.id);
+                const t = getTournamentById(tId);
+                const teamId = parseInt(e.target.value);
+                
+                if (e.target.checked) {
+                    if (!t.registeredTeams.includes(teamId)) t.registeredTeams.push(teamId);
+                } else {
+                    t.registeredTeams = t.registeredTeams.filter(id => id !== teamId);
+                }
+                // Re-render just the detail view to update button states etc.
+                renderAdminTournamentDetail(tId);
+            }
+        });
+
+        document.getElementById('confirm-delete-btn').addEventListener('click',()=>{
+            const type=document.getElementById('delete-item-type').value,id=parseInt(document.getElementById('delete-item-id').value);
+            if(type==='tournament'){ tournaments=tournaments.filter(t=>t.id!==id); document.getElementById('admin-tournament-detail-view').classList.add('hidden'); document.getElementById('admin-tournaments-list-view').classList.remove('hidden'); }
+            if(type==='team'){ teams=teams.filter(t=>t.id!==id); }
+            closeAllModals(); rerenderAll(); showMessageModal('نجاح','تم حذف العنصر بنجاح.');
+        });
         
         window.addEventListener('DOMContentLoaded', () => { setupCanvas(); draw(); rerenderAll(); });
         window.addEventListener('hashchange', () => navigateTo(window.location.hash));
