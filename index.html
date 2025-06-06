@@ -703,7 +703,7 @@
                             <div class="mt-4 pt-4 border-t border-[var(--color-border)]"><button class="delete-item-btn btn-danger w-full flex items-center justify-center gap-2" data-id="${t.id}" data-type="tournament"><i class="ph-bold ph-trash"></i>حذف البطولة</button></div>
                         </div>
                         <div class="glass-card p-6">
-                            <h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">الفرق المشاركة (${t.participants.length})</h3>
+                            <h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">الفرق المشاركة (${approvedParticipants.length}/${t.participants.length})</h3>
                             <div class="space-y-2 mb-4 max-h-96 overflow-y-auto pr-2">
                             ${ t.participants.length > 0 ? t.participants.map(p => {
                                 const team = getTeamById(p.teamId);
@@ -720,7 +720,7 @@
                                 </div>`}).join('') : '<p class="text-gray-500">لا توجد فرق مسجلة بعد.</p>'
                             }
                             </div>
-                            ${canManageTeams ? `<button id="generate-bracket-btn" data-id="${t.id}" class="btn-secondary w-full" ${approvedParticipants.length < 2 || approvedParticipants.length % 2 !== 0 ? 'disabled' : ''}>${t.matches && t.matches.length > 0 ? 'إعادة إنشاء الهيكل' : 'إنشاء الهيكل الأولي'}</button><p class="text-xs text-center text-gray-500 mt-2">${approvedParticipants.length < 2 ? 'تحتاج لفريقين مقبولين على الأقل' : approvedParticipants.length % 2 !== 0 ? 'يجب أن يكون عدد الفرق المقبولة زوجيًا' : ''}</p>` : ''}
+                            ${canManageTeams ? `<button id="generate-bracket-btn" data-id="${t.id}" class="btn-secondary w-full" ${approvedParticipants.length < 2 ? 'disabled' : ''}>${t.matches && t.matches.length > 0 ? 'إعادة إنشاء الهيكل' : 'إنشاء الهيكل الأولي'}</button><p class="text-xs text-center text-gray-500 mt-2">${approvedParticipants.length < 2 ? 'تحتاج لفريقين مقبولين على الأقل' : ''}</p>` : ''}
                         </div>
                     </div>
                     <div class="lg:col-span-2 glass-card p-6"><h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">إدارة المباريات</h3><div id="matches-management-list"></div></div>
@@ -821,8 +821,6 @@
             } else if (type === 'user') {
                 if (extraId) { await deleteDoc(doc(db, 'teams', extraId)); }
                 await deleteDoc(doc(db, 'users', id));
-                // Deleting the Firebase Auth user should be done via a Cloud Function for security.
-                // For now, this makes the app unusable for them.
             }
             await loadData(); showMessageModal('نجاح', 'تم حذف العنصر بنجاح.');
         }
@@ -837,6 +835,7 @@
         }
 
         async function handleJoinRequest(teamId, requesterId, approve) {
+            closeAllModals();
             const batch = writeBatch(db);
             const teamRef = doc(db, 'teams', teamId);
             const userRef = doc(db, 'users', requesterId);
@@ -881,19 +880,23 @@
             renderAdminTournamentDetail(tId);
         }
 
-        async function advanceBracket(tId, currentRound) {
-            const t = getTournamentById(tId); const roundMatches = t.matches.filter(m => m.round === currentRound);
-            if (!roundMatches.every(m => m.winner !== null)) return;
-            const winners = roundMatches.sort((a,b) => a.match - b.match).map(m => m.winner);
-            let updatedTournamentData = { matches: t.matches };
-            if (winners.length > 1) {
-                const nextRound = currentRound + 1; let nextMatchId = (t.matches.reduce((max, m) => Math.max(max, m.match), 0)) + 1;
-                for (let i = 0; i < winners.length; i += 2) { updatedTournamentData.matches.push({ round: nextRound, match: nextMatchId++, teams: [winners[i], winners[i+1]], winner: null, map: null, score: null, serverInfo:'' }); }
-            } else if (winners.length === 1) {
-                updatedTournamentData.winnerId = winners[0]; updatedTournamentData.status = 'منتهية';
+        async function advanceBracket(tId, currentRound, match) {
+            const t = getTournamentById(tId);
+            
+            // Advance winner of current match
+            const nextMatchId = Math.floor((match.match -1) / 2) + 1 + Math.max(...t.matches.filter(m => m.round === currentRound).map(m=>m.match));
+            const nextMatchIndex = t.matches.findIndex(m => m.round === currentRound + 1 && m.match === nextMatchId);
+            
+            if (nextMatchIndex !== -1) {
+                if (t.matches[nextMatchIndex].teams[0] === null || t.matches[nextMatchIndex].teams[0] === match.teams[0] || t.matches[nextMatchIndex].teams[0] === match.teams[1]) {
+                    t.matches[nextMatchIndex].teams[0] = match.winner;
+                } else {
+                    t.matches[nextMatchIndex].teams[1] = match.winner;
+                }
             }
-            await updateTournament(tId, updatedTournamentData);
+            await updateTournament(tId, { matches: t.matches });
         };
+        
         document.addEventListener('submit', async e => {
             e.preventDefault();
             if(e.target.id === 'create-tournament-form') {
@@ -953,7 +956,10 @@
                          const newLoser = getTeamById(newWinnerId === team1.id ? team2.id : team1.id); if (newLoser) { await updateTeam(newLoser.id, { losses: (newLoser.losses || 0) + 1 }); }
                     }
                 }
-                await advanceBracket(tId, t.matches[matchIndex].round); renderAdminTournamentDetail(tId);
+                const updatedT = await updateTournament(tId, { matches: t.matches });
+                const updatedMatch = updatedT.matches[matchIndex];
+                if (updatedMatch.winner) { await advanceBracket(tId, updatedMatch.round, updatedMatch); }
+                renderAdminTournamentDetail(tId);
             }
             if (e.target.id === 'deliver-prize-form') {
                 const tId = e.target.querySelector('#prize-tournament-id').value; const teamId = e.target.querySelector('#prize-team-id').value;
@@ -1057,13 +1063,64 @@
 
             const generateBracketBtn = e.target.closest('#generate-bracket-btn');
             if(generateBracketBtn) {
-                const tId = generateBracketBtn.dataset.id; const t = getTournamentById(tId);
+                const tId = generateBracketBtn.dataset.id;
+                const t = getTournamentById(tId);
                 const approvedTeams = t.participants.filter(p => p.status === 'approved').map(p => p.teamId);
-                if(approvedTeams.length < 2 || approvedTeams.length % 2 !== 0) { showMessageModal('خطأ', 'يجب أن يكون عدد الفرق المقبولة زوجيًا وأكثر من 1.', false); return; }
-                let teamsToPlay = [...approvedTeams].sort(() => 0.5 - Math.random());
-                let matches = []; let matchIdCounter = 1;
-                for(let i=0; i < teamsToPlay.length; i+=2) { matches.push({ round: 1, match: matchIdCounter++, teams: [teamsToPlay[i], teamsToPlay[i+1]], winner: null, map: null, score: null, serverInfo: '' }); }
-                await updateTournament(tId, { matches: matches, winnerId: null, status: 'جاهزة للبدء'}); renderAdminTournamentDetail(tId); showMessageModal('نجاح!', 'تم إنشاء هيكل البطولة.');
+                
+                if (approvedTeams.length < 2) {
+                    showMessageModal('خطأ', 'تحتاج إلى فريقين مقبولين على الأقل لإنشاء البطولة.', false);
+                    return;
+                }
+
+                // --- NEW BRACKET LOGIC ---
+                let shuffledTeams = [...approvedTeams].sort(() => 0.5 - Math.random());
+                const numTeams = shuffledTeams.length;
+                const nextPowerOfTwo = Math.pow(2, Math.ceil(Math.log2(numTeams)));
+                const numByes = nextPowerOfTwo - numTeams;
+                const numRound1Matches = (numTeams - numByes) / 2;
+
+                let matches = [];
+                let matchIdCounter = 1;
+                let round1Winners = [];
+
+                // Assign Byes
+                const teamsWithByes = shuffledTeams.splice(0, numByes);
+                teamsWithByes.forEach(teamId => {
+                    round1Winners.push(teamId);
+                });
+
+                // Create Round 1 Matches
+                for (let i = 0; i < numRound1Matches; i++) {
+                    const team1 = shuffledTeams.shift();
+                    const team2 = shuffledTeams.shift();
+                    matches.push({
+                        round: 1, match: matchIdCounter++, teams: [team1, team2],
+                        winner: null, map: null, score: null, serverInfo: ''
+                    });
+                }
+                
+                // Setup further rounds if needed
+                let currentRoundWinners = [...round1Winners];
+                let teamsForNextRound = [...t.matches.filter(m => m.round === 1).map(() => null), ...currentRoundWinners];
+                let roundCounter = 2;
+
+                while(teamsForNextRound.length > 1) {
+                    let nextRoundTeams = [];
+                    for(let i=0; i<teamsForNextRound.length; i+=2) {
+                        matches.push({
+                            round: roundCounter, match: matchIdCounter++,
+                            teams: [teamsForNextRound[i], teamsForNextRound[i+1]],
+                            winner: null, map: null, score: null, serverInfo: ''
+                        });
+                        nextRoundTeams.push(null);
+                    }
+                    teamsForNextRound = nextRoundTeams;
+                    roundCounter++;
+                }
+
+                await updateTournament(tId, { matches: matches, winnerId: null, status: 'جاهزة للبدء'});
+                renderAdminTournamentDetail(tId);
+                showMessageModal('نجاح!', 'تم إنشاء هيكل البطولة بنجاح.');
             }
             const manageMatchBtn = e.target.closest('.manage-match-btn'); if(manageMatchBtn) openManageMatchModal(manageMatchBtn.dataset.tournamentId, parseInt(manageMatchBtn.dataset.matchId));
         });
