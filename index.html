@@ -363,6 +363,10 @@
         const db = getFirestore(app);
         const googleProvider = new GoogleAuthProvider();
 
+        // --- GLOBAL DOM ELEMENTS (FIX) ---
+        const modalBackdrop = document.getElementById('modal-backdrop');
+        const allModals = document.querySelectorAll('.modal');
+
         // --- ANIMATED BACKGROUND ---
         const canvas = document.getElementById('background-canvas');
         const ctx = canvas.getContext('2d');
@@ -862,6 +866,11 @@
                 return `<h4 class="font-bold text-xl text-cyan-400 mb-2 mt-4 border-b border-cyan-800 pb-1">الجولة ${roundKey}</h4><div class="space-y-3">${roundMatchesHTML}</div>`;
             }).join("");
         };
+        
+        // --- MODAL & NAVIGATION LOGIC ---
+        const showMessageModal = (title, message, isSuccess = true) => { closeAllModals(); const m=document.getElementById('message-modal'); m.querySelector('#message-modal-title').textContent = title; m.querySelector('#message-modal-message').textContent = message; m.querySelector('#message-modal-icon').innerHTML = isSuccess ? `<i class="ph-duotone ph-check-circle text-6xl text-green-400"></i>` : `<i class="ph-duotone ph-x-circle text-6xl text-red-400"></i>`; modalBackdrop.classList.remove('hidden'); m.classList.remove('hidden'); }
+        const closeAllModals = () => { modalBackdrop.classList.add('hidden'); allModals.forEach(m => m.classList.add('hidden')); }
+        modalBackdrop.addEventListener('click', (e) => { if (e.target === modalBackdrop || e.target.classList.contains('modal-close')) { closeAllModals(); } });
         
         // --- AUTH & NOTIFICATION LOGIC ---
         let notificationsListener = null;
