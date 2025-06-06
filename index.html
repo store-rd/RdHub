@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RD Hub - مركز البطولات الاحترافي</title>
+    <title>RD Hub - مركز البطولات </title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -448,6 +448,7 @@
             if (!userTeamId) return `<button class="btn-secondary w-full" disabled>يجب أن تكون في فريق</button>`;
 
             const userTeam = getTeamById(userTeamId);
+            if (!userTeam) return `<button class="btn-secondary w-full" disabled>خطأ في بيانات الفريق</button>`;
             if (userTeam.type !== t.type) return `<button class="btn-secondary w-full" disabled>نوع الفريق غير متطابق</button>`;
 
             const registration = t.participants.find(p => p.teamId === userTeamId);
@@ -1098,7 +1099,6 @@
 
                 let matches = [];
                 let matchCounter = 1;
-                let prevRoundMatches = [];
 
                 // Create placeholder for all matches
                 for (let r = 1; r <= rounds; r++) {
@@ -1112,31 +1112,51 @@
                     }
                 }
 
+                // --- START OF FIX ---
                 // Link matches to their next match
-                matches.forEach(match => {
+                matches.forEach((match, currentIndex) => {
                     if (match.round < rounds) {
-                        const nextMatchIndex = Math.floor(matches.findIndex(m => m.uid === match.uid) / 2);
+                        const currentRoundStartIndex = matches.findIndex(m => m.round === match.round);
+                        const indexInCurrentRound = currentIndex - currentRoundStartIndex;
+                        const nextMatchIndexInNextRound = Math.floor(indexInCurrentRound / 2);
+                        
                         const nextRoundStartIndex = matches.findIndex(m => m.round === match.round + 1);
-                        const nextMatch = matches[nextRoundStartIndex + nextMatchIndex];
-                        match.nextMatch = { uid: nextMatch.uid, slot: matches.findIndex(m => m.uid === match.uid) % 2 };
+
+                        if (nextRoundStartIndex !== -1) {
+                            const nextMatch = matches[nextRoundStartIndex + nextMatchIndexInNextRound];
+                            if (nextMatch) {
+                                match.nextMatch = { 
+                                    uid: nextMatch.uid, 
+                                    slot: indexInCurrentRound % 2
+                                };
+                            }
+                        }
                     }
                 });
+                // --- END OF FIX ---
                 
                 // Populate round 1
                 let round1Matches = matches.filter(m => m.round === 1);
                 let teamsToPlace = [...teams];
                 
+                // Handle byes first
                 for(let i = 0; i < numByes; i++) {
                     const byeTeam = teamsToPlace.shift();
                     const matchToSkip = round1Matches[i];
-                    const nextMatch = matches.find(m => m.uid === matchToSkip.nextMatch.uid);
-                    nextMatch.teams[matchToSkip.nextMatch.slot] = byeTeam;
+                    
+                    if (matchToSkip && matchToSkip.nextMatch) {
+                        const nextMatch = matches.find(m => m.uid === matchToSkip.nextMatch.uid);
+                        if (nextMatch) {
+                            nextMatch.teams[matchToSkip.nextMatch.slot] = byeTeam;
+                        }
+                    }
                 }
                 
+                // Populate the actual first round matches
                 let matchesToPlay = round1Matches.slice(numByes);
                 for(let match of matchesToPlay) {
-                    match.teams[0] = teamsToPlace.shift();
-                    match.teams[1] = teamsToPlace.shift();
+                    if (teamsToPlace.length > 0) match.teams[0] = teamsToPlace.shift();
+                    if (teamsToPlace.length > 0) match.teams[1] = teamsToPlace.shift();
                 }
 
                 await updateTournament(tId, { matches: matches, winnerId: null, status: 'جاهزة للبدء'});
