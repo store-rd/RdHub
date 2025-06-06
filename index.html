@@ -72,7 +72,12 @@
 
         .btn-primary { background-image: linear-gradient(to right, var(--color-primary) 0%, var(--color-primary-glow) 51%, var(--color-primary) 100%); background-size: 200% auto; border-radius: 0.5rem; color: white; font-weight: bold; padding: 0.75rem 1.5rem; transition: all 0.4s ease; box-shadow: 0 0 10px rgba(8, 145, 178, 0.4); border: 1px solid transparent; }
         .btn-primary:hover { background-position: right center; transform: translateY(-2px); box-shadow: 0 0 25px rgba(8, 145, 178, 0.7); }
-        
+        .btn-secondary { background: rgba(245, 158, 11, 0.1); border: 1px solid var(--color-secondary); color: var(--color-secondary); font-weight: bold; padding: 0.7rem 1.45rem; border-radius: 0.5rem; transition: all 0.3s ease; }
+        .btn-secondary:hover { background: var(--color-secondary); color: white; transform: translateY(-2px); }
+        .btn-danger { background: rgba(220, 38, 38, 0.1); border: 1px solid #ef4444; color: #f87171; font-weight: bold; padding: 0.5rem 1rem; border-radius: 0.5rem; transition: all 0.3s ease; }
+        .btn-danger:hover { background: #ef4444; color: white; transform: translateY(-2px); }
+        .btn-primary:disabled, .btn-secondary:disabled, .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
         .form-input { background-color: var(--color-input-bg); border: 1px solid var(--color-input-border); color: var(--color-text-primary); border-radius: 0.375rem; padding: 0.75rem; width: 100%; transition: all 0.2s ease; }
         .form-input:focus { border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(8, 145, 178, 0.4); outline: none; }
         
@@ -82,6 +87,26 @@
 
         .modal { animation: fadeInModal 0.3s ease-out; }
         @keyframes fadeInModal { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .bracket-wrapper { display: flex; overflow-x: auto; padding: 2rem 1rem; scrollbar-width: thin; scrollbar-color: var(--color-primary) var(--color-bg); }
+        .bracket-round { display: flex; flex-direction: column; justify-content: space-around; flex-shrink: 0; margin-left: 5rem; min-width: 250px; }
+        .bracket-round:last-child { margin-left: 0; }
+        .bracket-match { margin: 2.5rem 0; position: relative; }
+        .bracket-team {
+            display: flex; justify-content: space-between; align-items: center; background: #1f2937;
+            padding: 0.6rem 0.8rem; border-radius: 0.375rem; color: var(--color-text-secondary);
+            border-left: 4px solid #4b5563; transition: all 0.3s ease; position: relative;
+        }
+        .bracket-team.winner { color: white; font-weight: bold; border-left-color: var(--color-secondary); background: #374151; }
+        .bracket-team-name { display: flex; align-items: center; gap: 0.75rem; }
+        .bracket-match::after { content: ''; position: absolute; top: 50%; right: -2.5rem; width: 2.5rem; height: 2px; background: #4b5563; }
+        .bracket-match .bracket-team:nth-child(1)::before, .bracket-match .bracket-team:nth-child(2)::before { content: ''; position: absolute; right: -1.5rem; width: 1.5rem; height: 2px; background: #4b5563; }
+        .bracket-match .bracket-team:nth-child(1)::before { top: 50%; }
+        .bracket-match .bracket-team:nth-child(2)::before { bottom: 50%; }
+        .bracket-match::before { content: ''; position: absolute; top: 25%; right: -2.5rem; width: 2px; height: 50%; background: #4b5563; }
+        .bracket-round:last-child .bracket-match::before, .bracket-round:last-child .bracket-match::after { display: none; }
+        html.light .bracket-team { background-color: #f9fafb; border-left-color: #d1d5db; }
+        html.light .bracket-team.winner { background: #e5e7eb; }
+        html.light .bracket-match::after, html.light .bracket-match::before, html.light .bracket-match .bracket-team::before { background: #d1d5db; }
     </style>
 </head>
 <body class="antialiased">
@@ -124,7 +149,7 @@
         <section id="admin" class="page"></section>
         
         <div id="modal-backdrop" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center hidden p-4">
-            <div id="dynamic-modal-content" class="modal hidden"></div>
+            <div id="dynamic-modal-content" class="w-full"></div>
         </div>
     </main>
 
@@ -135,7 +160,7 @@
 
         // --- FIREBASE CONFIGURATION (REPLACE WITH YOURS) ---
         const firebaseConfig = {
-            apiKey: "AIzaSyCDVFIYx6lzlrGSBMNKgpZ-RvX8tZJTpNQ",
+             apiKey: "AIzaSyCDVFIYx6lzlrGSBMNKgpZ-RvX8tZJTpNQ",
             authDomain: "gamerd-a58e9.firebaseapp.com",
             projectId: "gamerd-a58e9",
             storageBucket: "gamerd-a58e9.appspot.com",
@@ -332,10 +357,10 @@
                     </div>
                     <div class="mt-4 pt-4 border-t border-[var(--color-border)]">
                         ${winner ? `<div class="text-center"><p class="text-sm text-[var(--color-text-secondary)]">الفائز</p><div class="flex items-center justify-center font-bold text-lg"><i class="ph-duotone ${winner.logo} text-2xl text-[var(--color-secondary)] mr-2"></i> ${winner.name}</div></div>` : `<p class="text-center text-sm text-[var(--color-text-secondary)]">المشاركون: ${t.registeredTeams.length} فرق</p>`}
-                        <button class="view-bracket-btn w-full mt-3 bg-gray-700 hover:bg-gray-600 text-white dark:bg-gray-700 dark:hover:bg-gray-600 text-sm py-2 rounded-md flex items-center justify-center gap-2" data-tournament-id="${t.id}"><i class="ph-bold ph-graph"></i>عرض هيكل البطولة</button>
+                        <button class="view-bracket-btn w-full mt-3 bg-gray-700 hover:bg-gray-600 text-white text-sm py-2 rounded-md flex items-center justify-center gap-2" data-tournament-id="${t.id}"><i class="ph-bold ph-graph"></i>عرض هيكل البطولة</button>
                     </div>
                 </div>`
-            }).join('') || '<p class="text-center col-span-full">لا توجد بطولات حاليا.</p>';
+            }).join('') || '<p class="text-center col-span-full text-lg text-[var(--color-text-secondary)]">لا توجد بطولات حاليا.</p>';
         };
 
         const renderTeamsPage = () => {
@@ -349,7 +374,7 @@
                 <i class="ph-duotone ${t.logo} text-6xl text-[var(--color-primary-glow)] mx-auto mb-3"></i>
                 <h4 class="text-xl font-bold">${t.name}</h4><p class="text-[var(--color-secondary)] font-bold neon-text-secondary">${t.points || 0} نقطة</p>
                 <div class="text-sm text-[var(--color-text-secondary)] mt-2 truncate" title="${t.players.map(p => p.name).join(', ')}">${t.players.map(p => p.name).join(' & ')}</div>
-            </div>`).join("") || '<p class="text-center col-span-full">لا توجد فرق حاليا.</p>';
+            </div>`).join("") || '<p class="text-center col-span-full text-lg text-[var(--color-text-secondary)]">لا توجد فرق حاليا.</p>';
         };
         
         const renderLoginPage = () => {
@@ -360,7 +385,7 @@
         
         const renderProfilePage = () => {
             const page = document.getElementById('profile');
-            if (!currentUser) { page.innerHTML = ''; return; }
+            if (!currentUser || !page) { if (page) page.innerHTML = ''; return; }
 
             const myTeam = teams.find(t => t.players.some(p => p.email === currentUser.email));
             page.innerHTML = `
@@ -387,21 +412,196 @@
         const renderTournamentDetailPage = (id) => {
             const page = document.getElementById('tournament-detail');
             if(!page) return;
-            // This function renders the bracket and is quite large.
-            // ... Logic to render bracket ...
+            const t = getTournamentById(id); if (!t) { page.innerHTML = "البطولة غير موجودة"; return; };
+            page.innerHTML = `<button id="back-to-tournaments" class="mb-6 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-md transition flex items-center"><i class="ph-bold ph-arrow-right ml-2"></i> العودة للبطولات</button>
+            <h2 id="bracket-title" class="text-4xl font-orbitron font-bold mb-4 text-center text-[var(--color-primary-glow)] neon-text-primary">${t.name}</h2>
+            <p id="bracket-status" class="text-center text-lg text-[var(--color-text-secondary)] mb-8">الحالة: ${t.status}</p>
+            <div id="bracket-container" class="glass-card p-4"></div>`;
+            renderBracket(id);
+        };
+        
+        function renderBracket(id) {
+            const t = getTournamentById(id);
+            const container = document.getElementById('bracket-container');
+            if (!t || !container) return;
+            if (!t.matches || t.matches.length === 0) { container.innerHTML = `<div class="text-center p-8 text-[var(--color-text-secondary)]">لم يتم إنشاء مباريات لهذه البطولة بعد.</div>`; return; }
+            const rounds = {}; t.matches.forEach(m => { if (!rounds[m.round]) rounds[m.round] = []; rounds[m.round].push(m); });
+            let html = '<div class="bracket-wrapper flex-row-reverse">';
+            Object.keys(rounds).sort((a,b) => a-b).forEach(roundKey => {
+                html += `<div class="bracket-round">`;
+                rounds[roundKey].forEach(match => {
+                    const team1 = getTeamById(match.teams[0]), team2 = getTeamById(match.teams[1]);
+                    html += `<div class="bracket-match"><div class="space-y-2">
+                            <div class="bracket-team ${match.winner === team1?.id ? 'winner' : ''}">${team1 ? `<span class="bracket-team-name"><i class="ph-duotone ${team1.logo}"></i>${team1.name}</span> <span class="font-orbitron">${match.score?.[0] ?? ''}</span>` : `<span class="text-gray-500">...</span>`}</div>
+                            <div class="bracket-team ${match.winner === team2?.id ? 'winner' : ''}">${team2 ? `<span class="bracket-team-name"><i class="ph-duotone ${team2.logo}"></i>${team2.name}</span> <span class="font-orbitron">${match.score?.[1] ?? ''}</span>` : `<span class="text-gray-500">...</span>`}</div>
+                        </div></div>`;
+                });
+                html += `</div>`;
+            });
+            if (t.winnerId) {
+                const winner = getTeamById(t.winnerId);
+                if (winner) {
+                    html += `<div class="bracket-round flex flex-col justify-center items-center"><div class="text-center"><i class="ph-duotone ph-trophy text-7xl text-[var(--color-secondary)] neon-text-secondary"></i><h3 class="text-2xl font-bold mt-2">${winner.name}</h3><p class="text-[var(--color-text-secondary)]">بطل البطولة</p></div></div>`;
+                }
+            }
+            html += `</div>`; container.innerHTML = html;
+        }
+
+        // --- ADMIN RENDER FUNCTIONS (ALL INCLUDED) ---
+        const renderAdminPage = () => {
+            const page = document.getElementById('admin');
+            if (!currentUser?.isAdmin) { if (page) page.innerHTML = ''; return; }
+            page.innerHTML = `
+                <h2 class="text-4xl font-orbitron font-bold mb-8 text-center text-[var(--color-primary-glow)] neon-text-primary">لوحة التحكم</h2>
+                <div class="mb-6 flex border-b border-[var(--color-border)]">
+                    <button class="admin-tab-btn active p-4 text-lg font-bold border-b-2 border-[var(--color-primary)] text-[var(--color-primary)]" data-target="admin-dashboard"><i class="ph-bold ph-gauge ml-2"></i>لوحة القيادة</button>
+                    <button class="admin-tab-btn p-4 text-lg text-[var(--color-text-secondary)] hover:text-white" data-target="admin-tournaments"><i class="ph-bold ph-trophy ml-2"></i>إدارة البطولات</button>
+                    <button class="admin-tab-btn p-4 text-lg text-[var(--color-text-secondary)] hover:text-white" data-target="admin-teams"><i class="ph-bold ph-users-three ml-2"></i>إدارة الفرق</button>
+                </div>
+                <div id="admin-dashboard" class="admin-tab-content active"></div>
+                <div id="admin-tournaments" class="admin-tab-content"></div>
+                <div id="admin-teams" class="admin-tab-content"></div>`;
+            
+            renderAdminDashboard();
+            renderAdminTournamentsTab();
+            renderAdminTeamsTab();
         };
 
-        // --- ADMIN RENDER FUNCTIONS ---
-        const renderAdminPage = () => { /* Logic to render the admin page structure and tabs */ };
+        const renderAdminDashboard = () => {
+            const container = document.getElementById('admin-dashboard');
+            if(!container) return;
+            const sortedTournaments = [...tournaments].sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
+            const sortedTeams = [...teams].sort((a, b) => (b.points || 0) - (a.points || 0));
+            container.innerHTML = `
+                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="glass-card p-6 flex items-center gap-4"><i class="ph-duotone ph-trophy text-5xl text-[var(--color-primary)]"></i><div><p class="text-3xl font-orbitron font-bold">${tournaments.length}</p><p class="text-[var(--color-text-secondary)]">إجمالي البطولات</p></div></div>
+                    <div class="glass-card p-6 flex items-center gap-4"><i class="ph-duotone ph-users-three text-5xl text-[var(--color-primary)]"></i><div><p class="text-3xl font-orbitron font-bold">${teams.length}</p><p class="text-[var(--color-text-secondary)]">إجمالي الفرق</p></div></div>
+                    <div class="glass-card p-6 flex items-center gap-4"><i class="ph-duotone ph-game-controller text-5xl text-[var(--color-primary)]"></i><div><p class="text-3xl font-orbitron font-bold">${tournaments.flatMap(t => t.matches || []).length}</p><p class="text-[var(--color-text-secondary)]">إجمالي المباريات</p></div></div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <div class="glass-card p-6"><h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">أحدث البطولات</h3><div class="space-y-3">${sortedTournaments.slice(0,5).map(t => `<div class="flex justify-between items-center p-2 bg-black/20 dark:bg-gray-800/50 rounded"><span>${t.name}</span> <span class="text-xs px-2 py-0.5 rounded-full ${statusMap[t.status]}">${t.status}</span></div>`).join('') || '<p class="text-gray-500">لا توجد بطولات.</p>'}</div></div>
+                    <div class="glass-card p-6"><h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">أحدث الفرق</h3><div class="space-y-3">${sortedTeams.slice(0,5).map(t => `<div class="flex justify-between items-center p-2 bg-black/20 dark:bg-gray-800/50 rounded"><span>${t.name}</span><span class="text-[var(--color-text-secondary)] text-sm">${t.type}</span></div>`).join('') || '<p class="text-gray-500">لا توجد فرق.</p>'}</div></div>
+                </div>`;
+        };
         
-        // --- MODAL LOGIC ---
-        // Functions to open/close modals and generate their content
-        const openModal = (html) => { /* ... */ };
-        const closeModal = () => { /* ... */ };
+        const renderAdminTournamentsTab = () => {
+            const container = document.getElementById('admin-tournaments');
+            if(!container) return;
+            container.innerHTML = `<div id="admin-tournaments-list-view"></div> <div id="admin-tournament-detail-view" class="hidden"></div>`;
+            renderAdminTournamentsList();
+        };
 
-        // --- CRUD & Game Logic ---
-        // Functions like advanceBracket, updateTournament, etc.
+        const renderAdminTournamentsList = () => {
+            const container = document.getElementById('admin-tournaments-list-view');
+            if(!container) return;
+            const sortedTournaments = [...tournaments].sort((a,b) => new Date(b.startTime) - new Date(a.startTime));
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-3xl font-bold font-orbitron">قائمة البطولات</h3>
+                    <button class="show-create-tournament-modal-btn btn-primary flex items-center gap-2"><i class="ph-bold ph-plus-circle"></i> إنشاء بطولة جديدة</button>
+                </div>
+                <div class="space-y-4">
+                    ${sortedTournaments.map(t => `
+                    <div class="glass-card p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hover:scale-[1.02] transform transition">
+                        <div class="flex-grow"><h4 class="text-xl font-bold">${t.name}</h4><div class="flex items-center flex-wrap gap-x-4 gap-y-1 mt-1 text-sm text-[var(--color-text-secondary)]"><span><i class="ph-fill ph-users ml-1 text-cyan-400"></i>${t.type}</span><span><i class="ph-fill ph-flag ml-1 text-cyan-400"></i><span class="text-xs px-2 py-0.5 rounded-full ${statusMap[t.status]}">${t.status}</span></span><span><i class="ph-fill ph-users-three ml-1 text-cyan-400"></i>${t.registeredTeams.length} فرق</span></div></div>
+                        <div class="flex-shrink-0"><button class="admin-manage-tournament-btn btn-primary text-sm whitespace-nowrap" data-id="${t.id}">إدارة البطولة</button></div>
+                    </div>`).join('') || '<p class="text-center text-lg text-[var(--color-text-secondary)]">لا توجد بطولات لإدارتها.</p>'}
+                </div>`;
+        };
 
+        const renderAdminTeamsTab = () => {
+            const container = document.getElementById('admin-teams');
+            if(!container) return;
+            const sortedTeams = [...teams].sort((a, b) => (b.points || 0) - (a.points || 0));
+            container.innerHTML = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-3xl font-bold font-orbitron">قائمة الفرق واللاعبين</h3>
+                    <button class="show-create-team-modal-btn btn-primary flex items-center gap-2"><i class="ph-bold ph-plus-circle"></i> إضافة فريق جديد</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                ${sortedTeams.map(t => `
+                    <div class="glass-card p-4">
+                        <div class="flex justify-between items-start"><h4 class="text-lg font-bold">${t.name}</h4><div class="flex-shrink-0 space-x-reverse space-x-1"><button class="edit-team-btn text-blue-400 hover:text-white" data-id="${t.id}"><i class="ph-bold ph-pencil-simple text-xl"></i></button><button class="delete-item-btn text-red-400 hover:text-white" data-id="${t.id}" data-type="team"><i class="ph-bold ph-trash text-xl"></i></button></div></div>
+                        <p class="text-sm text-[var(--color-text-secondary)] -mt-1 truncate" title="${t.players.map(p => p.name).join(', ')}">${t.players.map(p => p.name).join(', ')}</p>
+                        <div class="flex items-center gap-4 mt-3 text-sm text-[var(--color-text-secondary)]"><span><i class="ph-fill ph-users ml-1 text-cyan-400"></i>${t.type}</span><span><i class="ph-fill ph-star ml-1 text-cyan-400"></i>${t.points || 0} نقطة</span><span class="mr-auto"><i class="ph-fill ph-chart-line ml-1 text-cyan-400"></i>${t.wins || 0}W / ${t.losses || 0}L</span></div>
+                    </div>`).join('') || '<p class="col-span-full text-center text-lg text-[var(--color-text-secondary)]">لا توجد فرق لإدارتها.</p>'}
+                </div>`;
+        };
+        
+        // --- MODAL LOGIC (ALL INCLUDED) ---
+        const modalBackdrop = document.getElementById('modal-backdrop');
+        const modalContent = document.getElementById('dynamic-modal-content');
+
+        const openModal = (htmlContent, maxWidth = 'max-w-lg') => {
+            modalContent.className = `modal glass-card p-6 rounded-lg text-right w-full ${maxWidth}`; // Reset classes and add new ones
+            modalContent.innerHTML = htmlContent;
+            modalBackdrop.classList.remove('hidden');
+        };
+
+        const closeModal = () => {
+            modalBackdrop.classList.add('hidden');
+            modalContent.innerHTML = '';
+        };
+
+        function showMessageModal(title, message, isSuccess = true) {
+            const icon = isSuccess ? `<i class="ph-duotone ph-check-circle text-6xl text-green-400"></i>` : `<i class="ph-duotone ph-x-circle text-6xl text-red-400"></i>`;
+            const html = `<div class="text-center"><div class="mx-auto mb-4">${icon}</div><h3 class="text-2xl font-bold mb-2">${title}</h3><p class="text-[var(--color-text-secondary)] mb-6">${message}</p><button class="modal-close-btn btn-primary">إغلاق</button></div>`;
+            openModal(html, 'max-w-sm');
+        }
+        function openCreateTournamentModal() {
+            const html = `<h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">إنشاء بطولة جديدة</h3>
+                <form id="create-tournament-form" class="space-y-4">
+                    <input type="text" name="name" placeholder="اسم البطولة" class="form-input" required>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <input type="text" name="prizePool" placeholder="الجائزة المالية (مثال: 1000$)" class="form-input">
+                        <select name="type" class="form-input"><option value="1v1">1 vs 1</option><option value="2v2">2 vs 2</option></select>
+                        <input type="number" name="scoreToWin" placeholder="جولات الفوز" class="form-input" required>
+                        <select name="matchFormat" class="form-input"><option value="Bo1">الأفضل من 1</option><option value="Bo3">الأفضل من 3</option></select>
+                    </div>
+                    <input type="datetime-local" name="startTime" class="form-input" required style="color-scheme: dark;">
+                    <div class="flex justify-end gap-3 pt-4"><button type="button" class="modal-close-btn bg-gray-600 py-2 px-6 rounded-md">إلغاء</button><button type="submit" class="btn-primary">إنشاء</button></div>
+                </form>`;
+            openModal(html, 'max-w-2xl');
+        }
+        function openCreateTeamModal() {
+            const html = `<h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">إضافة فريق جديد</h3>
+                <form id="create-team-form" class="space-y-4">
+                    <input type="text" id="team-name" placeholder="اسم الفريق/اللاعب" class="form-input" required>
+                    <select id="team-type-select" class="form-input"><option value="1v1">لاعب فردي (1v1)</option><option value="2v2">فريق ثنائي (2v2)</option></select>
+                    <div id="player-inputs" class="space-y-3"></div>
+                    <div class="flex justify-end gap-3 pt-4"><button type="button" class="modal-close-btn bg-gray-600 py-2 px-6 rounded-md">إلغاء</button><button type="submit" class="btn-primary">إضافة</button></div>
+                </form>`;
+            openModal(html, 'max-w-lg');
+            
+            const typeSelect = document.getElementById('team-type-select');
+            const playerInputsContainer = document.getElementById('player-inputs');
+            const updatePlayerInputs = (type) => {
+                const count = type === '1v1' ? 1 : 2;
+                playerInputsContainer.innerHTML = Array.from({length: count}, (_, i) => `
+                    <div class="p-3 border border-[var(--color-input-border)] rounded-md">
+                        <label class="block text-sm text-[var(--color-text-secondary)] mb-1">اللاعب ${i+1}</label>
+                        <input type="text" name="player-name" placeholder="اسم اللاعب ${i+1}" class="form-input mb-2" required>
+                        <input type="email" name="player-email" placeholder="بريد اللاعب ${i+1} الإلكتروني" class="form-input" required>
+                    </div>`).join('');
+            };
+            typeSelect.addEventListener('change', e => updatePlayerInputs(e.target.value));
+            updatePlayerInputs(typeSelect.value);
+        }
+        function openConfirmDeleteModal(type, id) {
+             const html = `<div class="text-center">
+                <input type="hidden" id="delete-item-type" value="${type}">
+                <input type="hidden" id="delete-item-id" value="${id}">
+                <div class="mx-auto mb-4"><i class="ph-duotone ph-warning-circle text-6xl text-[var(--color-secondary)]"></i></div>
+                <h3 class="text-2xl font-bold mb-2">تأكيد الحذف</h3>
+                <p class="text-[var(--color-text-secondary)] mb-6">هل أنت متأكد أنك تريد حذف هذا العنصر؟ لا يمكن التراجع عن هذا الإجراء.</p>
+                <div class="flex justify-center gap-4">
+                    <button type="button" class="modal-close-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-8 rounded-md">إلغاء</button>
+                    <button id="confirm-delete-btn" class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-8 rounded-md">حذف</button>
+                </div>
+            </div>`;
+            openModal(html, 'max-w-sm');
+        }
+        
         // --- EVENT DELEGATION & NAVIGATION ---
         const navigateTo = (hash) => {
             const targetHash = (hash === '' || hash === '#') ? '#home' : hash;
@@ -416,12 +616,6 @@
         };
 
         document.addEventListener('click', e => {
-            // Close modals or dropdowns
-            const modalBackdrop = document.getElementById('modal-backdrop');
-            if (e.target === modalBackdrop) closeModal();
-            const profileMenu = document.getElementById('profile-menu');
-            if (profileMenu && !e.target.closest('#profile-menu-btn')) profileMenu.classList.add('hidden');
-            
             const delegate = (selector, handler) => {
                 const target = e.target.closest(selector);
                 if (target) handler(target, e);
@@ -431,21 +625,78 @@
             delegate('#profile-menu-btn', () => document.getElementById('profile-menu')?.classList.toggle('hidden'));
             delegate('.nav-link', (el, event) => { event.preventDefault(); window.location.hash = el.getAttribute('href'); });
             delegate('#mobile-menu-button', () => document.getElementById('mobile-menu').classList.toggle('hidden'));
-            delegate('.modal-close', closeModal);
+            delegate('.modal-close-btn', closeModal);
             delegate('#login-btn, #mobile-login-btn', () => navigateTo('#login'));
             delegate('#google-login-btn', () => signInWithPopup(auth, googleProvider).catch(err => console.error(err)));
             delegate('#logout-btn, #mobile-logout-btn', () => signOut(auth));
             delegate('#gifts-btn', () => window.location.hash = '#profile');
             delegate('.view-bracket-btn', (el) => { window.location.hash=`#tournament-detail`; renderTournamentDetailPage(el.dataset.tournamentId); });
-            
-            // ... all other admin and user click delegations ...
+            delegate('#back-to-tournaments', () => window.location.hash = '#tournaments');
+            delegate('.admin-tab-btn', (el) => {
+                document.querySelectorAll('.admin-tab-btn').forEach(b=>b.classList.remove('active','border-[var(--color-primary)]','text-[var(--color-primary)]'));
+                el.classList.add('active','border-[var(--color-primary)]','text-[var(--color-primary)]');
+                document.querySelectorAll('.admin-tab-content').forEach(c=>c.classList.remove('active'));
+                document.getElementById(el.dataset.target).classList.add('active');
+            });
+            delegate('.show-create-tournament-modal-btn', openCreateTournamentModal);
+            delegate('.show-create-team-modal-btn', openCreateTeamModal);
+            delegate('.delete-item-btn', (el) => openConfirmDeleteModal(el.dataset.type, el.dataset.id));
+            delegate('#confirm-delete-btn', async (el) => {
+                const type = document.getElementById('delete-item-type').value;
+                const id = document.getElementById('delete-item-id').value;
+                closeModal();
+                await deleteDoc(doc(db, type === 'team' ? 'teams' : 'tournaments', id));
+                await loadData();
+                showMessageModal('نجاح', 'تم حذف العنصر بنجاح.');
+            });
+            // ... more delegations for admin buttons and other interactions
         });
 
-        // --- OTHER FUNCTIONS ---
+        document.addEventListener('submit', async e => {
+            e.preventDefault();
+            if (e.target.id === 'create-team-form') {
+                 if (!currentUser) { showMessageModal('خطأ','يجب تسجيل الدخول لإنشاء فريق', false); return; }
+                const type = document.getElementById('team-type-select').value;
+                const nameInputs = document.querySelectorAll('input[name="player-name"]');
+                const emailInputs = document.querySelectorAll('input[name="player-email"]');
+                const players = [];
+                for (let i = 0; i < nameInputs.length; i++) {
+                    const name = nameInputs[i].value.trim();
+                    const email = emailInputs[i].value.trim();
+                    if (name && email) players.push({ name, email });
+                }
+                const newTeam = {
+                    name: document.getElementById('team-name').value, type, players,
+                    points: 0, wins: 0, losses: 0,
+                    logo: type === '1v1' ? 'ph-user' : 'ph-users-two',
+                    ownerId: currentUser.uid
+                };
+                if(!newTeam.name || players.length === 0 || players.length !== nameInputs.length){showMessageModal('خطأ','يرجى إدخال اسم الفريق وبيانات اللاعبين كاملة.',false);return;}
+                closeModal(); await addDoc(collection(db, "teams"), newTeam); await loadData(); showMessageModal('نجاح!', 'تم إضافة الفريق.');
+            }
+             if (e.target.id === 'create-tournament-form') {
+                const formData = new FormData(e.target);
+                const newTournament = {
+                    name: formData.get('name'),
+                    type: formData.get('type'),
+                    scoreToWin: parseInt(formData.get('scoreToWin')),
+                    startTime: formData.get('startTime'),
+                    matchFormat: formData.get('matchFormat'),
+                    prizePool: formData.get('prizePool'),
+                    status: 'قادمة', registeredTeams: [], matches: [], winnerId: null
+                };
+                closeModal();
+                await addDoc(collection(db, "tournaments"), newTournament);
+                await loadData();
+                showMessageModal('نجاح!', 'تم إنشاء البطولة.');
+            }
+        });
+        
         function initCountdowns() {
             countdownIntervals.forEach(clearInterval);
             countdownIntervals = [];
             document.querySelectorAll('[id^="countdown-"]').forEach(el => {
+                if (!el) return;
                 const id = el.id.replace('countdown-featured-', '').replace('countdown-', '');
                 const tournament = getTournamentById(id);
                 if (tournament) {
@@ -467,7 +718,16 @@
         // --- INITIAL LOAD ---
         window.addEventListener('DOMContentLoaded', () => {
             applyTheme(localStorage.getItem('theme') || 'dark');
-            // Animated background can be started here if desired
+            const canvas = document.getElementById('background-canvas');
+            if(canvas) {
+                const ctx = canvas.getContext('2d');
+                let particles = [];
+                const setupCanvas = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; particles = []; const pCount = Math.floor(canvas.width * canvas.height / 20000); for (let i = 0; i < pCount; i++) { particles.push({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, vx: (Math.random() - 0.5) * 0.4, vy: (Math.random() - 0.5) * 0.4, size: Math.random() * 2.5 + 1, }); } };
+                const draw = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = 'rgba(8, 145, 178, 0.6)'; particles.forEach(p => { p.x += p.vx; p.y += p.vy; if (p.x < 0 || p.x > canvas.width) p.vx *= -1; if (p.y < 0 || p.y > canvas.height) p.vy *= -1; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); }); requestAnimationFrame(draw); };
+                window.addEventListener('resize', setupCanvas);
+                setupCanvas();
+                draw();
+            }
         });
         window.addEventListener('hashchange', () => navigateTo(window.location.hash));
 
