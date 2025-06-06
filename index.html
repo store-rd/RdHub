@@ -880,22 +880,6 @@
             await loadData();
             renderAdminTournamentDetail(tId);
         }
-
-        async function advanceBracket(tId, winningTeamId, playedMatch) {
-            const t = getTournamentById(tId);
-            if (!t || !playedMatch.nextMatch) return;
-        
-            const nextMatchIndex = t.matches.findIndex(m => m.uid === playedMatch.nextMatch.uid);
-            if (nextMatchIndex === -1) return;
-        
-            if (playedMatch.nextMatch.slot === 0) {
-                t.matches[nextMatchIndex].teams[0] = winningTeamId;
-            } else {
-                t.matches[nextMatchIndex].teams[1] = winningTeamId;
-            }
-        
-            await updateTournament(t.id, { matches: t.matches });
-        }
         
         document.addEventListener('submit', async e => {
             e.preventDefault();
@@ -938,47 +922,130 @@
                 };
                 closeAllModals(); const updated = await updateTournament(id, updatedData); renderAdminTournamentDetail(updated.id); showMessageModal('نجاح', 'تم تحديث البطولة.');
             }
+            
+            // ================== START: MODIFIED CODE ==================
             if(e.target.id === 'manage-match-form') {
-                const tId=e.target.querySelector('#match-m-tournament-id').value, mId=parseInt(e.target.querySelector('#match-m-match-id').value);
-                let t = getTournamentById(tId); let matchIndex = t.matches.findIndex(m => m.match === mId); if(matchIndex === -1) return;
-                const score1=parseInt(e.target.querySelector('#match-m-team1-score').value)||0, score2=parseInt(e.target.querySelector('#match-m-team2-score').value)||0;
-                const team1=getTeamById(t.matches[matchIndex].teams[0]), team2=getTeamById(t.matches[matchIndex].teams[1]);
-                const oldWinnerId = t.matches[matchIndex].winner;
+                const tId = e.target.querySelector('#match-m-tournament-id').value;
+                const mId = parseInt(e.target.querySelector('#match-m-match-id').value);
+
+                const t_orig = getTournamentById(tId);
+                if (!t_orig) return;
+
+                // Use a deep copy for modifications to avoid side effects on the local cache before saving
+                let t_copy = JSON.parse(JSON.stringify(t_orig));
                 
+                const matchIndex = t_copy.matches.findIndex(m => m.match === mId);
+                if (matchIndex === -1) return;
+
+                const playedMatch = t_copy.matches[matchIndex];
+                const oldWinnerId = playedMatch.winner;
+
+                const score1 = parseInt(e.target.querySelector('#match-m-team1-score').value) || 0;
+                const score2 = parseInt(e.target.querySelector('#match-m-team2-score').value) || 0;
+                const team1Id = playedMatch.teams[0];
+                const team2Id = playedMatch.teams[1];
+
                 let newWinnerId = null;
-                if(score1 >= t.scoreToWin && score1 > score2) newWinnerId=team1.id; else if(score2 >= t.scoreToWin && score2 > score1) newWinnerId=team2.id;
-                
-                t.matches[matchIndex].map=e.target.querySelector('#match-m-map').value; t.matches[matchIndex].serverInfo = e.target.querySelector('#match-m-server-info').value; t.matches[matchIndex].score=[score1,score2];
-                t.matches[matchIndex].winner = newWinnerId;
-                
+                if (team1Id && team2Id) {
+                    if (score1 >= t_copy.scoreToWin && score1 > score2) newWinnerId = team1Id;
+                    else if (score2 >= t_copy.scoreToWin && score2 > score1) newWinnerId = team2Id;
+                }
+
                 closeAllModals();
 
-                if (oldWinnerId !== newWinnerId) {
-                    if(oldWinnerId) {
-                        const oldWinner = getTeamById(oldWinnerId); if(oldWinner) { await updateTeam(oldWinner.id, { wins: Math.max(0, (oldWinner.wins || 0) - 1), points: Math.max(0, (oldWinner.points || 0) - 100) }); }
-                        const oldLoser = getTeamById(oldWinnerId === team1.id ? team2.id : team1.id); if(oldLoser) { await updateTeam(oldLoser.id, { losses: Math.max(0, (oldLoser.losses || 0) - 1) }); }
-                    }
-                    if(newWinnerId) {
-                         const newWinner = getTeamById(newWinnerId); if (newWinner) { await updateTeam(newWinner.id, { wins: (newWinner.wins || 0) + 1, points: (newWinner.points || 0) + 100 }); }
-                         const newLoser = getTeamById(newWinnerId === team1.id ? team2.id : team1.id); if (newLoser) { await updateTeam(newLoser.id, { losses: (newLoser.losses || 0) + 1 }); }
-                    }
-                }
-                
-                if (newWinnerId) {
-                    await advanceBracket(tId, newWinnerId, t.matches[matchIndex]);
-                } else {
-                    await updateTournament(tId, { matches: t.matches });
+                // If the winner hasn't changed, perform a simple update and exit.
+                // This avoids complex batch writes when just updating scores without a conclusive winner.
+                if (oldWinnerId === newWinnerId) {
+                    playedMatch.score = [score1, score2];
+                    playedMatch.map = e.target.querySelector('#match-m-map').value;
+                    playedMatch.serverInfo = e.target.querySelector('#match-m-server-info').value;
+                    await updateTournament(tId, { matches: t_copy.matches });
+                    renderAdminTournamentDetail(tId);
+                    return;
                 }
 
-                const finalT = getTournamentById(tId);
-                const playedMatch = finalT.matches.find(m => m.match === mId);
-                const isFinal = !playedMatch.nextMatch;
-                if(isFinal && playedMatch.winner) {
-                     await updateTournament(tId, { winnerId: playedMatch.winner, status: 'منتهية' });
-                }
+                // If the winner has changed, perform an atomic batch write for all related data.
+                try {
+                    const batch = writeBatch(db);
+                    
+                    // 1. Update match details
+                    playedMatch.score = [score1, score2];
+                    playedMatch.map = e.target.querySelector('#match-m-map').value;
+                    playedMatch.serverInfo = e.target.querySelector('#match-m-server-info').value;
+                    playedMatch.winner = newWinnerId;
 
-                renderAdminTournamentDetail(tId);
+                    // 2. Reverse old results if a winner existed before
+                    if (oldWinnerId) {
+                        const oldWinnerTeam = getTeamById(oldWinnerId);
+                        const oldLoserId = oldWinnerId === team1Id ? team2Id : team1Id;
+                        const oldLoserTeam = getTeamById(oldLoserId);
+                        
+                        if (oldWinnerTeam) {
+                            const teamRef = doc(db, 'teams', oldWinnerId);
+                            batch.update(teamRef, {
+                                wins: Math.max(0, (oldWinnerTeam.wins || 0) - 1),
+                                points: Math.max(0, (oldWinnerTeam.points || 0) - 100)
+                            });
+                        }
+                        if (oldLoserTeam) {
+                            const teamRef = doc(db, 'teams', oldLoserId);
+                            batch.update(teamRef, { losses: Math.max(0, (oldLoserTeam.losses || 0) - 1) });
+                        }
+                    }
+                    
+                    const tournamentDocRef = doc(db, "tournaments", tId);
+                    let tournamentUpdatePayload = {};
+
+                    // 3. Apply new results and advance bracket if there is a new winner
+                    if (newWinnerId) {
+                        const newWinnerTeam = getTeamById(newWinnerId);
+                        const newLoserId = newWinnerId === team1Id ? team2Id : team1Id;
+                        const newLoserTeam = getTeamById(newLoserId);
+
+                        if (newWinnerTeam) {
+                            const teamRef = doc(db, 'teams', newWinnerId);
+                            batch.update(teamRef, {
+                                wins: (newWinnerTeam.wins || 0) + 1,
+                                points: (newWinnerTeam.points || 0) + 100
+                            });
+                        }
+                        if (newLoserTeam) {
+                            const teamRef = doc(db, 'teams', newLoserId);
+                            batch.update(teamRef, { losses: (newLoserTeam.losses || 0) + 1 });
+                        }
+
+                        // Bracket advancement logic
+                        if (playedMatch.nextMatch) {
+                            const nextMatchIndex = t_copy.matches.findIndex(m => m.uid === playedMatch.nextMatch.uid);
+                            if (nextMatchIndex !== -1) {
+                                if (playedMatch.nextMatch.slot === 0) t_copy.matches[nextMatchIndex].teams[0] = newWinnerId;
+                                else t_copy.matches[nextMatchIndex].teams[1] = newWinnerId;
+                            }
+                        } else {
+                            // This was the final match, crown a champion
+                            tournamentUpdatePayload.winnerId = newWinnerId;
+                            tournamentUpdatePayload.status = 'منتهية';
+                        }
+                    }
+                    
+                    tournamentUpdatePayload.matches = t_copy.matches;
+                    batch.update(tournamentDocRef, tournamentUpdatePayload);
+                    
+                    // 4. Commit all changes at once for data consistency
+                    await batch.commit();
+
+                    // 5. Refresh local data from Firestore and re-render the UI
+                    await loadData();
+                    renderAdminTournamentDetail(tId);
+                    showMessageModal('نجاح', 'تم تحديث نتيجة المباراة بنجاح.');
+
+                } catch (error) {
+                    console.error("Error updating match result with batch:", error);
+                    showMessageModal('خطأ فادح', 'حدث خطأ أثناء تحديث النتيجة.', false);
+                }
             }
+            // =================== END: MODIFIED CODE ===================
+
             if (e.target.id === 'deliver-prize-form') {
                 const tId = e.target.querySelector('#prize-tournament-id').value; const teamId = e.target.querySelector('#prize-team-id').value;
                 const desc = e.target.querySelector('#prize-description').value; const codes = Array.from(e.target.querySelectorAll('input[name="prize-code"]')).map(input => ({uid: input.dataset.uid, code: input.value}));
