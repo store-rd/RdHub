@@ -376,6 +376,12 @@
             renderHomePage(); renderTournamentsPage(); renderTeamsPage(); 
             if (currentUserData && currentUserData.role === 'admin') {
                 renderAdminPage();
+                // If admin is viewing a tournament detail page, refresh it
+                const detailView = document.getElementById('admin-tournament-detail-view');
+                if(!detailView.classList.contains('hidden')) {
+                    const tId = detailView.dataset.tournamentId;
+                    if(tId) renderAdminTournamentDetail(tId);
+                }
             }
         };
 
@@ -679,6 +685,7 @@
         const renderAdminTournamentDetail = (id) => {
             const t = getTournamentById(id); if (!t) return;
             const detailView = document.getElementById('admin-tournament-detail-view');
+            detailView.dataset.tournamentId = id; // Store the current tournament ID
             const canManageTeams = t.status === 'قادمة' || t.status === 'جاهزة للبدء';
             const approvedParticipants = t.participants.filter(p => p.status === 'approved');
             
@@ -729,6 +736,7 @@
             document.getElementById('admin-tournaments-list-view').classList.add('hidden'); detailView.classList.remove('hidden');
             renderMatchManagement(id);
         };
+        
         const renderMatchManagement = (id) => {
             const container = document.getElementById("matches-management-list");
             const t = getTournamentById(id); if (!t || !container) { return; }
@@ -737,7 +745,8 @@
             container.innerHTML = Object.keys(rounds).sort((a,b)=>a-b).map(roundKey => {
                 const roundMatchesHTML = rounds[roundKey].map(m => {
                     const team1 = getTeamById(m.teams[0]), team2 = getTeamById(m.teams[1]);
-                    return `<div class="p-4 bg-gray-800/50 rounded-lg border border-gray-700"><div class="flex justify-between items-center mb-2"><p class="text-sm text-gray-400">الجولة ${m.round} - المباراة ${m.match}</p>${m.winner === null && team1 && team2 && (t.status ==='جارية' || t.status === 'جاهزة للبدء') ? `<button class="manage-match-btn text-blue-400 hover:text-white text-sm flex items-center gap-1" data-tournament-id="${t.id}" data-match-id="${m.match}"><i class="ph-bold ph-pencil-simple"></i> تحديث</button>`:''}</div><div class="flex items-center justify-between"><div class="font-bold text-lg ${m.winner === team1?.id ? 'text-green-400' : 'text-white'}">${team1?.name || '...'}</div><div class="font-orbitron text-center text-xl text-gray-500">${m.score ? `${m.score[0]} - ${m.score[1]}` : 'VS'}<p class="text-xs font-sans">${m.map || 'لم تلعب'}</p></div><div class="font-bold text-lg ${m.winner === team2?.id ? 'text-green-400' : 'text-white'}">${team2?.name || '...'}</div></div></div>`
+                    const canManage = m.winner === null && (team1 || team2) && (t.status ==='جارية' || t.status === 'جاهزة للبدء');
+                    return `<div class="p-4 bg-gray-800/50 rounded-lg border border-gray-700"><div class="flex justify-between items-center mb-2"><p class="text-sm text-gray-400">الجولة ${m.round} - المباراة ${m.match}</p>${canManage ? `<button class="manage-match-btn text-blue-400 hover:text-white text-sm flex items-center gap-1" data-tournament-id="${t.id}" data-match-id="${m.match}"><i class="ph-bold ph-pencil-simple"></i> تحديث</button>`:''}</div><div class="flex items-center justify-between"><div class="font-bold text-lg ${m.winner === team1?.id ? 'text-green-400' : 'text-white'}">${team1?.name || '...'}</div><div class="font-orbitron text-center text-xl text-gray-500">${m.score ? `${m.score[0]} - ${m.score[1]}` : 'VS'}<p class="text-xs font-sans">${m.map || 'لم تلعب'}</p></div><div class="font-bold text-lg ${m.winner === team2?.id ? 'text-green-400' : 'text-white'}">${team2?.name || '...'}</div></div></div>`
                 }).join("");
                 return `<h4 class="font-bold text-xl text-cyan-400 mb-2 mt-4 border-b border-cyan-800 pb-1">الجولة ${roundKey}</h4><div class="space-y-3">${roundMatchesHTML}</div>`;
             }).join("");
@@ -923,128 +932,81 @@
                 closeAllModals(); const updated = await updateTournament(id, updatedData); renderAdminTournamentDetail(updated.id); showMessageModal('نجاح', 'تم تحديث البطولة.');
             }
             
-            // ================== START: MODIFIED CODE ==================
+            // ================== START: FINAL STABLE CODE ==================
             if(e.target.id === 'manage-match-form') {
-                const tId = e.target.querySelector('#match-m-tournament-id').value;
-                const mId = parseInt(e.target.querySelector('#match-m-match-id').value);
-
-                const t_orig = getTournamentById(tId);
-                if (!t_orig) return;
-
-                // Use a deep copy for modifications to avoid side effects on the local cache before saving
-                let t_copy = JSON.parse(JSON.stringify(t_orig));
-                
-                const matchIndex = t_copy.matches.findIndex(m => m.match === mId);
-                if (matchIndex === -1) return;
-
-                const playedMatch = t_copy.matches[matchIndex];
-                const oldWinnerId = playedMatch.winner;
-
-                const score1 = parseInt(e.target.querySelector('#match-m-team1-score').value) || 0;
-                const score2 = parseInt(e.target.querySelector('#match-m-team2-score').value) || 0;
-                const team1Id = playedMatch.teams[0];
-                const team2Id = playedMatch.teams[1];
-
-                let newWinnerId = null;
-                if (team1Id && team2Id) {
-                    if (score1 >= t_copy.scoreToWin && score1 > score2) newWinnerId = team1Id;
-                    else if (score2 >= t_copy.scoreToWin && score2 > score1) newWinnerId = team2Id;
-                }
-
-                closeAllModals();
-
-                // If the winner hasn't changed, perform a simple update and exit.
-                // This avoids complex batch writes when just updating scores without a conclusive winner.
-                if (oldWinnerId === newWinnerId) {
-                    playedMatch.score = [score1, score2];
-                    playedMatch.map = e.target.querySelector('#match-m-map').value;
-                    playedMatch.serverInfo = e.target.querySelector('#match-m-server-info').value;
-                    await updateTournament(tId, { matches: t_copy.matches });
-                    renderAdminTournamentDetail(tId);
-                    return;
-                }
-
-                // If the winner has changed, perform an atomic batch write for all related data.
                 try {
-                    const batch = writeBatch(db);
+                    const tId = document.getElementById('match-m-tournament-id').value;
+                    const mId = parseInt(document.getElementById('match-m-match-id').value);
                     
-                    // 1. Update match details
-                    playedMatch.score = [score1, score2];
-                    playedMatch.map = e.target.querySelector('#match-m-map').value;
-                    playedMatch.serverInfo = e.target.querySelector('#match-m-server-info').value;
-                    playedMatch.winner = newWinnerId;
+                    const t_orig = getTournamentById(tId);
+                    if (!t_orig) throw new Error("لم يتم العثور على البطولة!");
 
-                    // 2. Reverse old results if a winner existed before
-                    if (oldWinnerId) {
-                        const oldWinnerTeam = getTeamById(oldWinnerId);
-                        const oldLoserId = oldWinnerId === team1Id ? team2Id : team1Id;
-                        const oldLoserTeam = getTeamById(oldLoserId);
-                        
-                        if (oldWinnerTeam) {
-                            const teamRef = doc(db, 'teams', oldWinnerId);
-                            batch.update(teamRef, {
-                                wins: Math.max(0, (oldWinnerTeam.wins || 0) - 1),
-                                points: Math.max(0, (oldWinnerTeam.points || 0) - 100)
-                            });
-                        }
-                        if (oldLoserTeam) {
-                            const teamRef = doc(db, 'teams', oldLoserId);
-                            batch.update(teamRef, { losses: Math.max(0, (oldLoserTeam.losses || 0) - 1) });
-                        }
+                    let t_copy = JSON.parse(JSON.stringify(t_orig));
+                    const matchIndex = t_copy.matches.findIndex(m => m.match === mId);
+                    if (matchIndex === -1) throw new Error("لم يتم العثور على المباراة!");
+                    const playedMatch = t_copy.matches[matchIndex];
+
+                    const newTeam1Id = document.getElementById('match-m-team1-select').value || null;
+                    const newTeam2Id = document.getElementById('match-m-team2-select').value || null;
+                    const score1 = parseInt(document.getElementById('match-m-team1-score').value) || 0;
+                    const score2 = parseInt(document.getElementById('match-m-team2-score').value) || 0;
+                    const map = document.getElementById('match-m-map').value;
+                    const serverInfo = document.getElementById('match-m-server-info').value;
+                    
+                    const winnerRadio = document.querySelector('input[name="winner_selection"]:checked');
+                    let newWinnerId = winnerRadio ? (winnerRadio.value || null) : null;
+                    
+                    if(newTeam1Id && newTeam1Id === newTeam2Id) {
+                        showMessageModal('خطأ', 'لا يمكن أن يلعب الفريق ضد نفسه.', false);
+                        return;
                     }
                     
-                    const tournamentDocRef = doc(db, "tournaments", tId);
+                    if (!newWinnerId) {
+                        if (newTeam1Id && !newTeam2Id) newWinnerId = newTeam1Id;
+                        else if (!newTeam1Id && newTeam2Id) newWinnerId = newTeam2Id;
+                        else if (newTeam1Id && newTeam2Id) {
+                            if (t_copy.scoreToWin > 0 && score1 >= t_copy.scoreToWin && score1 > score2) newWinnerId = newTeam1Id;
+                            else if (t_copy.scoreToWin > 0 && score2 >= t_copy.scoreToWin && score2 > score1) newWinnerId = newTeam2Id;
+                        }
+                    }
+
+                    closeAllModals();
+
+                    playedMatch.teams = [newTeam1Id, newTeam2Id];
+                    playedMatch.score = [score1, score2];
+                    playedMatch.map = map;
+                    playedMatch.serverInfo = serverInfo;
+                    playedMatch.winner = newWinnerId;
+
                     let tournamentUpdatePayload = {};
+                    if (t_orig.status === 'جاهزة للبدء' && newWinnerId) {
+                        tournamentUpdatePayload.status = 'جارية';
+                    }
 
-                    // 3. Apply new results and advance bracket if there is a new winner
                     if (newWinnerId) {
-                        const newWinnerTeam = getTeamById(newWinnerId);
-                        const newLoserId = newWinnerId === team1Id ? team2Id : team1Id;
-                        const newLoserTeam = getTeamById(newLoserId);
-
-                        if (newWinnerTeam) {
-                            const teamRef = doc(db, 'teams', newWinnerId);
-                            batch.update(teamRef, {
-                                wins: (newWinnerTeam.wins || 0) + 1,
-                                points: (newWinnerTeam.points || 0) + 100
-                            });
-                        }
-                        if (newLoserTeam) {
-                            const teamRef = doc(db, 'teams', newLoserId);
-                            batch.update(teamRef, { losses: (newLoserTeam.losses || 0) + 1 });
-                        }
-
-                        // Bracket advancement logic
                         if (playedMatch.nextMatch) {
                             const nextMatchIndex = t_copy.matches.findIndex(m => m.uid === playedMatch.nextMatch.uid);
                             if (nextMatchIndex !== -1) {
-                                if (playedMatch.nextMatch.slot === 0) t_copy.matches[nextMatchIndex].teams[0] = newWinnerId;
-                                else t_copy.matches[nextMatchIndex].teams[1] = newWinnerId;
+                                t_copy.matches[nextMatchIndex].teams[playedMatch.nextMatch.slot] = newWinnerId;
                             }
                         } else {
-                            // This was the final match, crown a champion
                             tournamentUpdatePayload.winnerId = newWinnerId;
                             tournamentUpdatePayload.status = 'منتهية';
                         }
                     }
                     
                     tournamentUpdatePayload.matches = t_copy.matches;
-                    batch.update(tournamentDocRef, tournamentUpdatePayload);
+                    await updateDoc(doc(db, "tournaments", tId), tournamentUpdatePayload);
                     
-                    // 4. Commit all changes at once for data consistency
-                    await batch.commit();
-
-                    // 5. Refresh local data from Firestore and re-render the UI
                     await loadData();
-                    renderAdminTournamentDetail(tId);
                     showMessageModal('نجاح', 'تم تحديث نتيجة المباراة بنجاح.');
 
                 } catch (error) {
-                    console.error("Error updating match result with batch:", error);
-                    showMessageModal('خطأ فادح', 'حدث خطأ أثناء تحديث النتيجة.', false);
+                    console.error("Error updating match result:", error);
+                    showMessageModal('خطأ فادح', `حدث خطأ أثناء تحديث النتيجة: ${error.message}`, false);
                 }
             }
-            // =================== END: MODIFIED CODE ===================
+            // =================== END: FINAL STABLE CODE ===================
 
             if (e.target.id === 'deliver-prize-form') {
                 const tId = e.target.querySelector('#prize-tournament-id').value; const teamId = e.target.querySelector('#prize-team-id').value;
@@ -1075,8 +1037,12 @@
                         const distance = new Date(t.startTime).getTime() - new Date().getTime();
                         if(t.status === 'منتهية') { clearInterval(interval); el.textContent = "انتهت"; return; }
                         if (distance < 0) {
-                            clearInterval(interval); el.textContent = "جارية الآن!";
-                            if(t.status === 'جاهزة للبدء' && currentUserData?.role === 'admin') { updateTournament(t.id, { status: 'جارية'}); }
+                            clearInterval(interval);
+                            if(t.status === 'جاهزة للبدء' && currentUserData?.role === 'admin') { 
+                                updateTournament(t.id, { status: 'جارية'}); 
+                            } else {
+                                el.textContent = t.status === 'جارية' ? "جارية الآن!" : t.status;
+                            }
                             return;
                         }
                         const d=Math.floor(distance/(1000*60*60*24)), h=Math.floor((distance%(1000*60*60*24))/(1000*60*60)), m=Math.floor((distance%(1000*60*60))/(1000*60)), s=Math.floor((distance%(1000*60))/1000);
@@ -1099,7 +1065,7 @@
             if (targetPage.id === 'tournament-detail' && isInitialLoad) { window.location.hash = '#tournaments'; return; }
             
             if (targetHash === '#profile') renderProfilePage();
-            if (targetHash === '#home') renderHomePage(); // Rerender home page on navigation
+            if (targetHash === '#home') renderHomePage();
 
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
             document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('text-white', 'border-b-2', 'border-[var(--color-primary)]'));
@@ -1132,7 +1098,6 @@
             const approveJoinBtn = e.target.closest('.approve-join-request-btn'); if(approveJoinBtn) { await handleJoinRequest(approveJoinBtn.dataset.teamid, approveJoinBtn.dataset.uid, true); }
             const rejectJoinBtn = e.target.closest('.reject-join-request-btn'); if(rejectJoinBtn) { await handleJoinRequest(rejectJoinBtn.dataset.teamid, rejectJoinBtn.dataset.uid, false); }
             
-            // Player management buttons
             const approvePlayerBtn = e.target.closest('.approve-player-btn'); if(approvePlayerBtn) { await updateDoc(doc(db, 'users', approvePlayerBtn.dataset.uid), { status: 'approved' }); showMessageModal('نجاح', 'تم قبول اللاعب.'); await loadData(); }
             const savePlayerBtn = e.target.closest('.save-player-btn'); if(savePlayerBtn) {
                 const uid = savePlayerBtn.dataset.uid; const teamId = savePlayerBtn.dataset.teamid;
@@ -1157,7 +1122,6 @@
                     return;
                 }
 
-                // --- NEW BRACKET GENERATION LOGIC ---
                 let teams = [...approvedTeams].sort(() => 0.5 - Math.random());
                 const numTeams = teams.length;
                 const rounds = Math.ceil(Math.log2(numTeams));
@@ -1167,7 +1131,6 @@
                 let matches = [];
                 let matchCounter = 1;
 
-                // Create placeholder for all matches
                 for (let r = 1; r <= rounds; r++) {
                     const numMatchesInRound = Math.pow(2, rounds - r);
                     for (let i = 0; i < numMatchesInRound; i++) {
@@ -1179,47 +1142,35 @@
                     }
                 }
 
-                // --- START OF FIX ---
-                // Link matches to their next match
                 matches.forEach((match, currentIndex) => {
                     if (match.round < rounds) {
                         const currentRoundStartIndex = matches.findIndex(m => m.round === match.round);
                         const indexInCurrentRound = currentIndex - currentRoundStartIndex;
                         const nextMatchIndexInNextRound = Math.floor(indexInCurrentRound / 2);
-                        
                         const nextRoundStartIndex = matches.findIndex(m => m.round === match.round + 1);
 
                         if (nextRoundStartIndex !== -1) {
                             const nextMatch = matches[nextRoundStartIndex + nextMatchIndexInNextRound];
                             if (nextMatch) {
-                                match.nextMatch = { 
-                                    uid: nextMatch.uid, 
-                                    slot: indexInCurrentRound % 2
-                                };
+                                match.nextMatch = { uid: nextMatch.uid, slot: indexInCurrentRound % 2 };
                             }
                         }
                     }
                 });
-                // --- END OF FIX ---
                 
-                // Populate round 1
                 let round1Matches = matches.filter(m => m.round === 1);
                 let teamsToPlace = [...teams];
                 
-                // Handle byes first
                 for(let i = 0; i < numByes; i++) {
                     const byeTeam = teamsToPlace.shift();
                     const matchToSkip = round1Matches[i];
                     
                     if (matchToSkip && matchToSkip.nextMatch) {
                         const nextMatch = matches.find(m => m.uid === matchToSkip.nextMatch.uid);
-                        if (nextMatch) {
-                            nextMatch.teams[matchToSkip.nextMatch.slot] = byeTeam;
-                        }
+                        if (nextMatch) { nextMatch.teams[matchToSkip.nextMatch.slot] = byeTeam; }
                     }
                 }
                 
-                // Populate the actual first round matches
                 let matchesToPlay = round1Matches.slice(numByes);
                 for(let match of matchesToPlay) {
                     if (teamsToPlace.length > 0) match.teams[0] = teamsToPlace.shift();
@@ -1348,24 +1299,92 @@
                 </form>`;
             modalBackdrop.classList.remove('hidden'); modal.classList.remove('hidden');
         }
-        function openManageMatchModal(tId,mId){
-            const t=getTournamentById(tId), match=t.matches.find(m=>m.match==mId); if(!match)return;
-            const team1=getTeamById(match.teams[0]), team2=getTeamById(match.teams[1]);
-            const mapOptions=(t.mapPool || []).map(map=>`<option value="${map}" ${match.map===map?'selected':''}>${map}</option>`).join('');
-            const modal=document.getElementById('manage-match-modal');
-            modal.innerHTML=`<h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">تحديث نتيجة المباراة</h3>
+
+        function openManageMatchModal(tId, mId) {
+            const t = getTournamentById(tId);
+            const match = t.matches.find(m => m.match === mId);
+            if (!match) return;
+            
+            const participantTeamIds = t.participants.map(p => p.teamId);
+            const participantTeams = teams.filter(team => participantTeamIds.includes(team.id) && team.type === t.type);
+
+            const teamOptionsHTML = participantTeams.map(team => `<option value="${team.id}">${team.name}</option>`).join('');
+
+            const team1Id = match.teams[0];
+            const team2Id = match.teams[1];
+
+            const mapOptions = (t.mapPool || []).map(map => `<option value="${map}" ${match.map === map ? 'selected' : ''}>${map}</option>`).join('');
+            
+            const modal = document.getElementById('manage-match-modal');
+            modal.innerHTML = `<h3 class="text-2xl font-bold mb-4 font-orbitron text-[var(--color-primary-glow)]">تحديث المباراة</h3>
             <form id="manage-match-form" class="space-y-4">
-                <input type="hidden" id="match-m-tournament-id" value="${tId}"><input type="hidden" id="match-m-match-id" value="${mId}">
-                <div class="grid grid-cols-2 gap-4">
-                    <div><label class="block mb-1">${team1.name}</label><input type="number" id="match-m-team1-score" value="${match.score?.[0]||''}" min="0" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white"></div>
-                    <div><label class="block mb-1">${team2.name}</label><input type="number" id="match-m-team2-score" value="${match.score?.[1]||''}" min="0" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white"></div>
+                <input type="hidden" id="match-m-tournament-id" value="${tId}">
+                <input type="hidden" id="match-m-match-id" value="${mId}">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block mb-1">الفريق الأول</label>
+                        <select id="match-m-team1-select" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white">
+                            <option value="">-- اختر فريقًا أو اتركه فارغًا --</option>
+                            ${teamOptionsHTML}
+                        </select>
+                    </div>
+                     <div>
+                        <label class="block mb-1">الفريق الثاني</label>
+                        <select id="match-m-team2-select" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white">
+                            <option value="">-- اختر فريقًا أو اتركه فارغًا --</option>
+                            ${teamOptionsHTML}
+                        </select>
+                    </div>
                 </div>
-                <div><label class="block mb-1">الخريطة</label><select id="match-m-map" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white"><option value="">اختر خريطة</option>${mapOptions}</select></div>
-                <div><label class="block mb-1">معلومات السيرفر</label><input type="text" id="match-m-server-info" placeholder="مثال: connect 123.45.67.89:27015" value="${match.serverInfo || ''}" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white"></div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <input type="number" id="match-m-team1-score" value="${match.score?.[0] || ''}" min="0" placeholder="نتيجة الفريق 1" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white">
+                    <input type="number" id="match-m-team2-score" value="${match.score?.[1] || ''}" min="0" placeholder="نتيجة الفريق 2" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white">
+                </div>
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <div class="flex-1"><label class="block mb-1">الخريطة</label><select id="match-m-map" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white"><option value="">اختر خريطة</option>${mapOptions}</select></div>
+                    <div class="flex-1"><label class="block mb-1">معلومات السيرفر</label><input type="text" id="match-m-server-info" value="${match.serverInfo || ''}" placeholder="معلومات السيرفر" class="w-full bg-gray-800 border-gray-700 border rounded-md p-3 text-white"></div>
+                </div>
+                
+                <div class="mt-4 pt-4 border-t border-gray-700">
+                    <label class="block mb-2 font-bold text-white">تحديد الفائز يدوياً</label>
+                    <div id="winner-selection-container" class="space-y-2">
+                        <!-- This will be populated dynamically -->
+                    </div>
+                </div>
+
                 <div class="flex justify-end gap-3 pt-4"><button type="button" class="modal-close bg-gray-600 py-2 px-6 rounded-md">إلغاء</button><button type="submit" class="btn-primary">تحديث</button></div>
             </form>`;
-            modalBackdrop.classList.remove('hidden'); modal.classList.remove('hidden');
+            
+            document.getElementById('match-m-team1-select').value = team1Id || "";
+            document.getElementById('match-m-team2-select').value = team2Id || "";
+
+            const updateWinnerSelection = () => {
+                const team1Select = document.getElementById('match-m-team1-select');
+                const team2Select = document.getElementById('match-m-team2-select');
+                const container = document.getElementById('winner-selection-container');
+
+                const selectedTeam1Id = team1Select.value;
+                const selectedTeam2Id = team2Select.value;
+                const team1 = getTeamById(selectedTeam1Id);
+                const team2 = getTeamById(selectedTeam2Id);
+                
+                let html = '';
+                if (team1) html += `<div><label class="flex items-center gap-2"><input type="radio" name="winner_selection" value="${team1.id}"> ${team1.name}</label></div>`;
+                if (team2) html += `<div><label class="flex items-center gap-2"><input type="radio" name="winner_selection" value="${team2.id}"> ${team2.name}</label></div>`;
+                html += `<div><label class="flex items-center gap-2"><input type="radio" name="winner_selection" value="" checked> لم يحدد بعد / إلغاء</label></div>`;
+                container.innerHTML = html;
+            };
+
+            document.getElementById('match-m-team1-select').addEventListener('change', updateWinnerSelection);
+            document.getElementById('match-m-team2-select').addEventListener('change', updateWinnerSelection);
+            
+            updateWinnerSelection(); 
+            modalBackdrop.classList.remove('hidden');
+            modal.classList.remove('hidden');
         }
+
         function openDeliverPrizeModal(tournamentId, winnerTeamId) {
             const winnerTeam = getTeamById(winnerTeamId);
             const playerInputs = winnerTeam.playerUids.map(uid => {
